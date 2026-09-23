@@ -58,5 +58,5 @@ Thumbs.db
 *.log
 .tmp/
 
-# Globant skills working docs (symlink to docs/asd; real files live in docs/asd)
+# Globant skills working docs (symlinks to docs/asd and docs/plans; real files live in docs/)
 .globant-skills-docs/
