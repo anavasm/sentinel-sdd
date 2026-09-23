@@ -1,0 +1,202 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://sentinel.dev/specs/events-schema.json",
+  "title": "Sentinel AI SSE Event Contract",
+  "description": "Normative contract for events emitted on the per-audit SSE stream (GET /api/v1/audits/{auditId}/stream). Every event shares a common envelope and is one of the 4 core types: AGENT_THOUGHT, TOOL_EXECUTION, VULNERABILITY_FOUND, AUDIT_COMPLETED. Delivery is in-order per audit (NFR-A2) and each event id doubles as the SSE `id:` field for Last-Event-ID resync (plan decision D-6). LLM provider degradation is surfaced as a TOOL_EXECUTION event with status failed/degraded, never as a transport error (NFR-A3).",
+  "oneOf": [
+    { "$ref": "#/$defs/agentThoughtEvent" },
+    { "$ref": "#/$defs/toolExecutionEvent" },
+    { "$ref": "#/$defs/vulnerabilityFoundEvent" },
+    { "$ref": "#/$defs/auditCompletedEvent" }
+  ],
+  "$defs": {
+    "eventType": {
+      "type": "string",
+      "enum": [
+        "AGENT_THOUGHT",
+        "TOOL_EXECUTION",
+        "VULNERABILITY_FOUND",
+        "AUDIT_COMPLETED"
+      ]
+    },
+    "severity": {
+      "type": "string",
+      "enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"],
+      "description": "Matches the Severity enum in specs/openapi.yaml."
+    },
+    "commonEnvelope": {
+      "type": "object",
+      "description": "Envelope shared by every SSE event. Consumers validate the envelope and switch on `type` to discriminate the payload.",
+      "required": ["id", "type", "timestamp", "auditId", "payload"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Monotonic sequence number per audit, starting at 1. Also used as the SSE `id:` field."
+        },
+        "type": {
+          "$ref": "#/$defs/eventType"
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Emission time (RFC 3339). Rendered as-is by the live console."
+        },
+        "auditId": {
+          "type": "string",
+          "pattern": "^aud_[0-9a-zA-Z]+$",
+          "description": "Audit this event belongs to; matches the auditId in the stream path."
+        },
+        "payload": {
+          "type": "object",
+          "description": "Event-specific data; shape is determined by `type`."
+        }
+      }
+    },
+    "agentThoughtEvent": {
+      "type": "object",
+      "description": "Agent reasoning step, streamed live to the console (e.g. 'Analyzing auth.ts for injection sinks').",
+      "allOf": [
+        { "$ref": "#/$defs/commonEnvelope" },
+        {
+          "properties": {
+            "type": { "const": "AGENT_THOUGHT" },
+            "payload": {
+              "type": "object",
+              "required": ["content"],
+              "additionalProperties": true,
+              "properties": {
+                "content": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Free-form reasoning text shown in the live console."
+                },
+                "step": {
+                  "type": "string",
+                  "description": "Optional label of the current audit phase (clone, analyze, remediate...)."
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "toolExecutionEvent": {
+      "type": "object",
+      "description": "Tool/step execution trace (git clone, file read, LLM call). Also models LLM provider degradation as a failed/degraded outcome instead of an HTTP error (NFR-A3).",
+      "allOf": [
+        { "$ref": "#/$defs/commonEnvelope" },
+        {
+          "properties": {
+            "type": { "const": "TOOL_EXECUTION" },
+            "payload": {
+              "type": "object",
+              "required": ["tool", "status"],
+              "additionalProperties": true,
+              "properties": {
+                "tool": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Tool or step identifier, e.g. git-clone, read-file, llm-analyze."
+                },
+                "input": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "description": "Sanitized tool inputs; must not embed secrets or full file dumps."
+                },
+                "status": {
+                  "type": "string",
+                  "enum": ["started", "succeeded", "failed", "degraded"],
+                  "description": "Execution outcome. `degraded` marks LLM throttling/fallback to Ollama (NFR-A3)."
+                },
+                "output": {
+                  "type": "string",
+                  "description": "Short human-readable result summary for the console."
+                },
+                "error": {
+                  "type": "string",
+                  "description": "Failure detail when status is failed or degraded."
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "vulnerabilityFoundEvent": {
+      "type": "object",
+      "description": "One actionable finding with Before/After snippets (principle §5.5 — findings without fixes are incomplete output). Mirrors the Finding schema in specs/openapi.yaml.",
+      "allOf": [
+        { "$ref": "#/$defs/commonEnvelope" },
+        {
+          "properties": {
+            "type": { "const": "VULNERABILITY_FOUND" },
+            "payload": {
+              "type": "object",
+              "required": [
+                "ruleId",
+                "title",
+                "severity",
+                "filePath",
+                "description",
+                "beforeSnippet",
+                "afterSnippet"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "ruleId": { "type": "string" },
+                "title": { "type": "string", "minLength": 1 },
+                "severity": { "$ref": "#/$defs/severity" },
+                "filePath": { "type": "string", "minLength": 1 },
+                "lineNumber": { "type": "integer", "minimum": 1 },
+                "cweId": { "type": "string" },
+                "description": { "type": "string", "minLength": 1 },
+                "beforeSnippet": { "type": "string" },
+                "afterSnippet": { "type": "string" }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "auditCompletedEvent": {
+      "type": "object",
+      "description": "Terminal event of every audit stream. `status: failed` covers engine crashes so no stream is ever left open; error detail travels in the payload.",
+      "allOf": [
+        { "$ref": "#/$defs/commonEnvelope" },
+        {
+          "properties": {
+            "type": { "const": "AUDIT_COMPLETED" },
+            "payload": {
+              "type": "object",
+              "required": ["status"],
+              "additionalProperties": false,
+              "properties": {
+                "status": {
+                  "type": "string",
+                  "enum": ["completed", "failed"]
+                },
+                "healthScore": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 100,
+                  "description": "Overall health score 0-100; present when the audit completed."
+                },
+                "summary": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "description": "Final counters (findings per severity, rules evaluated, duration)."
+                },
+                "error": {
+                  "type": "string",
+                  "description": "Failure detail when status is failed."
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

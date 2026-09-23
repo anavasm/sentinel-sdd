@@ -1,0 +1,368 @@
+# DevSecOps Sentinel AI — REST API Contract
+#
+# Spec-first contract (constraint C-04, docs/asd/04-constraints.md).
+# This file is the source of truth for the REST surface consumed by
+# mfe-config (POST /api/v1/audits) and mfe-metrics (GET audit + SSE stream).
+#
+# Conventions (see .globant-skills-docs/plans/implementation-plan-specs-contracts.md):
+#   D-1: OpenAPI 3.1
+#   D-2: RFC 9457 Problem Details for REST errors
+#   D-3: SSE endpoint responds 404 BEFORE establishing text/event-stream headers
+#   D-4: audit status enum: queued | running | completed | failed
+#   NFR-S1: no-auth PoC; X-API-Key securityScheme defined but not required
+openapi: 3.1.0
+info:
+  title: DevSecOps Sentinel AI API
+  version: 0.1.0
+  description: >
+    REST contract for audit lifecycle management in the Sentinel AI MVP.
+    Audits are created via POST and executed asynchronously by the AI Agent
+    Engine; clients observe progress through the per-audit SSE stream
+    (contract: specs/events-schema.json). Persistence is in-memory for the
+    current server session (docs/asd/08-data-architecture.md).
+servers:
+  - url: http://localhost:3000/api/v1
+    description: Local development server
+tags:
+  - name: audits
+    description: Audit lifecycle (create, inspect, stream)
+security:
+  - {} # No-auth PoC (NFR-S1). X-API-Key available as opt-in below.
+paths:
+  /audits:
+    post:
+      operationId: createAudit
+      summary: Create and launch an audit
+      description: >
+        Validates the audit configuration, persists it in memory for the
+        current session, and spawns the Agent Engine task asynchronously.
+        The response returns the audit identifier used to open the SSE stream.
+      tags:
+        - audits
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuditConfig'
+            examples:
+              gitRepositoryAudit:
+                summary: Audit a remote Git repository
+                value:
+                  repoUrl: https://github.com/example/vulnerable-app.git
+                  ruleSets:
+                    owaspTop10: true
+                    testQuality: true
+                    codeSmellsPerformance: false
+                  severityThreshold: MEDIUM
+              localRepositoryAudit:
+                summary: Audit a local test repository
+                value:
+                  localPath: /Users/dev/projects/sample-repo
+                  ruleSets:
+                    owaspTop10: true
+                    testQuality: false
+                    codeSmellsPerformance: true
+                  severityThreshold: LOW
+      responses:
+        '201':
+          description: Audit created and queued for async execution.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditCreated'
+        '400':
+          description: >
+            Invalid configuration: malformed body, missing repository source,
+            no enabled rule set, or invalid severity threshold. A local
+            repository path that does not exist also fails here (fail fast).
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '413':
+          description: Request payload exceeds the allowed size limit.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+  /audits/{auditId}:
+    get:
+      operationId: getAudit
+      summary: Retrieve audit metadata and results
+      description: >
+        Returns the audit lifecycle status and, when available, the findings
+        consumed by the mfe-metrics refactoring drawer. Also serves as the
+        source for the Markdown report export.
+      tags:
+        - audits
+      parameters:
+        - $ref: '#/components/parameters/AuditId'
+      responses:
+        '200':
+          description: Audit resource (results present if execution finished).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Audit'
+        '404':
+          description: No audit exists with the given identifier in this session.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+  /audits/{auditId}/stream:
+    get:
+      operationId: streamAuditEvents
+      summary: Stream agent events for one audit (Server-Sent Events)
+      description: >
+        Unidirectional SSE channel carrying the agent's live activity for a
+        single audit. Event payloads conform to specs/events-schema.json.
+        Delivery is strictly in-order per audit (NFR-A2); each event is
+        flushed immediately to honor the < 500ms latency KPI (NFR-P1) —
+        no batching. The stream is scoped to one audit and exposes no
+        cross-audit data (NFR-S3). Only the Agent Engine activity flows
+        here; LLM provider failures are surfaced as TOOL_EXECUTION events
+        with a failed/degraded outcome, never as HTTP errors (NFR-A3).
+      tags:
+        - audits
+      parameters:
+        - $ref: '#/components/parameters/AuditId'
+        - $ref: '#/components/parameters/LastEventId'
+      responses:
+        '200':
+          description: >
+            SSE stream. Each `event:` matches one of the 4 core types
+            (AGENT_THOUGHT, TOOL_EXECUTION, VULNERABILITY_FOUND,
+            AUDIT_COMPLETED) and each `data:` payload validates against
+            specs/events-schema.json. The SSE `id:` field is the monotonic
+            per-audit event sequence number; clients may reconnect with
+            Last-Event-ID to resync. Connecting to an already-completed
+            audit first replays the buffered events, then delivers
+            AUDIT_COMPLETED and closes.
+          content:
+            text/event-stream:
+              schema:
+                $ref: '../specs/events-schema.json'
+        '404':
+          description: >
+            No audit exists with the given identifier. Returned BEFORE any
+            event-stream headers are sent, so clients must not treat this
+            as an SSE connection failure.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+components:
+  parameters:
+    AuditId:
+      name: auditId
+      in: path
+      required: true
+      description: Audit identifier returned by createAudit (prefixed `aud_`).
+      schema:
+        type: string
+        pattern: '^aud_[0-9a-zA-Z]+$'
+      example: aud_123
+    LastEventId:
+      name: Last-Event-ID
+      in: header
+      required: false
+      description: >
+        Standard SSE reconnection header. The server resumes the ordered
+        stream after this monotonic event id for the given audit.
+      schema:
+        type: string
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: >
+        Simulated key for the no-auth PoC (NFR-S1). Not required by default;
+        reserve for optional simulation at the API layer.
+  schemas:
+    Severity:
+      type: string
+      enum:
+        - LOW
+        - MEDIUM
+        - HIGH
+        - CRITICAL
+      description: Severity levels used for thresholds and findings.
+    AuditStatus:
+      type: string
+      enum:
+        - queued
+        - running
+        - completed
+        - failed
+      description: >
+        Audit lifecycle state. `failed` is terminal and always accompanied
+        by a terminal AUDIT_COMPLETED event with status failed on the stream.
+    RuleSets:
+      type: object
+      description: Rule categories to activate for the audit. At least one must be true.
+      additionalProperties: false
+      properties:
+        owaspTop10:
+          type: boolean
+          description: Security vulnerabilities (OWASP Top 10).
+        testQuality:
+          type: boolean
+          description: Unit test quality and coverage rules.
+        codeSmellsPerformance:
+          type: boolean
+          description: Code smells and performance rules.
+    AuditConfig:
+      type: object
+      description: >
+        Audit launch configuration. Exactly one repository source is
+        required: `repoUrl` (Git URL) or `localPath` (local repository).
+      oneOf:
+        - required:
+            - repoUrl
+            - ruleSets
+            - severityThreshold
+        - required:
+            - localPath
+            - ruleSets
+            - severityThreshold
+      properties:
+        repoUrl:
+          type: string
+          format: uri
+          description: Git URL of the repository to audit.
+          example: https://github.com/example/vulnerable-app.git
+        localPath:
+          type: string
+          minLength: 1
+          description: Absolute filesystem path of a local repository to audit.
+          example: /Users/dev/projects/sample-repo
+        ruleSets:
+          $ref: '#/components/schemas/RuleSets'
+        severityThreshold:
+          $ref: '#/components/schemas/Severity'
+    AuditCreated:
+      type: object
+      required:
+        - auditId
+        - status
+      properties:
+        auditId:
+          type: string
+          pattern: '^aud_[0-9a-zA-Z]+$'
+          example: aud_123
+        status:
+          $ref: '#/components/schemas/AuditStatus'
+    Finding:
+      type: object
+      description: >
+        One actionable finding. Mirrors the VULNERABILITY_FOUND event payload
+        (specs/events-schema.json) — findings without fixes are incomplete
+        output (docs/asd/05-principles.md §5.5).
+      required:
+        - ruleId
+        - title
+        - severity
+        - filePath
+        - description
+        - beforeSnippet
+        - afterSnippet
+      properties:
+        ruleId:
+          type: string
+          example: owasp-a03-injection
+        title:
+          type: string
+          example: SQL Injection in user lookup
+        severity:
+          $ref: '#/components/schemas/Severity'
+        filePath:
+          type: string
+          example: src/auth/queries.ts
+        lineNumber:
+          type: integer
+          minimum: 1
+        cweId:
+          type: string
+          example: CWE-89
+        description:
+          type: string
+        beforeSnippet:
+          type: string
+          description: Original code as found in the repository.
+        afterSnippet:
+          type: string
+          description: AI-generated refactored code ready to apply.
+    Audit:
+      type: object
+      required:
+        - auditId
+        - status
+        - config
+        - createdAt
+      properties:
+        auditId:
+          type: string
+          pattern: '^aud_[0-9a-zA-Z]+$'
+        status:
+          $ref: '#/components/schemas/AuditStatus'
+        config:
+          $ref: '#/components/schemas/AuditConfig'
+        createdAt:
+          type: string
+          format: date-time
+        findings:
+          type: array
+          description: Findings accumulated so far; complete once status is completed.
+          items:
+            $ref: '#/components/schemas/Finding'
+        summary:
+          type: object
+          description: Final summary; present once status is completed or failed.
+          additionalProperties: true
+    Problem:
+      type: object
+      description: RFC 9457 Problem Details (D-2) — single error model for all REST failures.
+      required:
+        - type
+        - title
+        - status
+      properties:
+        type:
+          type: string
+          format: uri-reference
+          description: URI reference identifying the problem type.
+          example: https://sentinel.dev/problems/validation-error
+        title:
+          type: string
+          description: Short, human-readable summary of the problem type.
+          example: Validation failed
+        status:
+          type: integer
+          description: HTTP status code.
+          example: 400
+        detail:
+          type: string
+          description: Human-readable explanation specific to this occurrence.
+          example: severityThreshold must be one of LOW, MEDIUM, HIGH, CRITICAL
+        instance:
+          type: string
+          format: uri-reference
+          description: URI reference of the failing request.
+        errors:
+          type: array
+          description: Field-level validation details (validation problems only).
+          items:
+            type: object
+            required:
+              - field
+              - message
+            properties:
+              field:
+                type: string
+                example: severityThreshold
+              message:
+                type: string
+                example: must be one of LOW, MEDIUM, HIGH, CRITICAL
