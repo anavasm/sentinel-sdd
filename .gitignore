@@ -57,3 +57,6 @@ Thumbs.db
 .cache/
 *.log
 .tmp/
+
+# Globant skills working docs (symlink to docs/asd; real files live in docs/asd)
+.globant-skills-docs/
