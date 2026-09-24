@@ -24,9 +24,6 @@ import type { Audit } from '../index.ts';
 export const API_BASE_URL = 'http://localhost:3000';
 const AUDITS_PATH = '/api/v1/audits';
 
-/** Audit ids the mock backend knows — anything else returns 404. */
-const KNOWN_AUDIT_IDS: ReadonlySet<string> = new Set([SAMPLE_AUDIT_ID]);
-
 /** Scenarios selectable for GET/stream mocks. */
 export type MockScenario = 'happy-path' | 'failed-audit';
 

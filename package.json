@@ -12,5 +12,8 @@
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
     "build": "turbo run build"
+  },
+  "devDependencies": {
+    "turbo": "^2"
   }
 }
