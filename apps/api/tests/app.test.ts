@@ -22,11 +22,13 @@ describe('US-1 scaffolding — app boots and serves /api/v1', () => {
     expect(response.headers['x-powered-by']).toBeUndefined();
   });
 
-  it('returns the Express default 404 for unknown /api/v1 routes (US-2 adds Problem Details)', async () => {
+  it('returns RFC 9457 Problem Details for unknown /api/v1 routes (US-2 central handler)', async () => {
     const app = createApp();
 
-    const response = await request(app).get('/api/v1/audits');
+    const response = await request(app).get('/api/v1/unknown');
 
     expect(response.status).toBe(404);
+    expect(response.headers['content-type']).toContain('application/problem+json');
+    expect(response.body.status).toBe(404);
   });
 });

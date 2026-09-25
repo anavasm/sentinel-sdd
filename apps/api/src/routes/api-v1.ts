@@ -3,9 +3,9 @@ import { Router, type Router as ExpressRouter } from 'express';
 /**
  * Router mounted at the contract base path `/api/v1` (openapi `servers`).
  *
- * `GET /health` is an internal smoke route (plan Task 1.1) — it lives outside
- * the openapi contract and must be removed or excluded from contract docs at
- * the US-2 review. All audit endpoints arrive in US-2/US-3/US-4.
+ * US-2 adds `POST /audits` (fail-fast validated audit creation). `GET /health`
+ * is an internal smoke route from US-1 (outside the openapi contract).
+ * `GET /audits/{id}` and `GET /audits/{id}/stream` arrive in US-3/US-4.
  */
 export const apiV1Router: ExpressRouter = Router();
 
