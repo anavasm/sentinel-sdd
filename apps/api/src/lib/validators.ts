@@ -1,7 +1,9 @@
 import { Ajv, type Plugin, type ValidateFunction } from 'ajv';
 import * as ajvFormatsModule from 'ajv-formats';
 
-import type { AuditConfig } from '@sentinel/contracts';
+import type { AuditConfig, SentinelAISSEEventContract } from '@sentinel/contracts';
+
+import eventsSchema from '../../../../specs/events-schema.json' with { type: 'json' };
 
 /**
  * AuditConfig JSON Schema — D-API-1 local adapter.
@@ -88,4 +90,19 @@ export const validateAuditConfig: ValidateFunction<AuditConfig> = (() => {
   const ajv = new Ajv({ allErrors: true, strict: false });
   addFormats(ajv);
   return ajv.compile<AuditConfig>(auditConfigSchema);
+})();
+
+/**
+ * Ajv validator for outbound SSE events (plan US-4 / D-API-1).
+ *
+ * Compiled from the normative specs/events-schema.json (draft-07, `oneOf`
+ * over the 4 core event types) — imported from `/specs`, never restated.
+ * The hub is the validator of record (ASD §6.1): no contract-violating
+ * frame ever reaches the wire.
+ */
+export const validateSentinelEvent: ValidateFunction<SentinelAISSEEventContract> = (() => {
+  const addFormats = ajvFormatsModule.default as unknown as Plugin<Record<string, unknown>>;
+  const ajv = new Ajv({ allErrors: true, strict: false });
+  addFormats(ajv);
+  return ajv.compile<SentinelAISSEEventContract>(eventsSchema);
 })();

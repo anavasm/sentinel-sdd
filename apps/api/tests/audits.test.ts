@@ -305,9 +305,13 @@ describe('US-3 - GET /api/v1/audits/:auditId and session state', () => {
     resetAuditStore();
   });
 
-  /** Creates an audit through the public POST endpoint and returns its id. */
+  /**
+   * Creates an audit through the public POST endpoint and returns its id.
+   * The US-4 stub runner is disabled so these US-3 tests fully control the
+   * lifecycle (POST with the default app would transition states async).
+   */
   async function createAuditViaApi(): Promise<string> {
-    const app = createApp();
+    const app = createApp({ runner: null });
     const response = await request(app).post(`${API_V1}/audits`).send(validRepoUrlConfig());
     expect(response.status).toBe(201);
     return response.body.auditId as string;

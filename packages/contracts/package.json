@@ -10,7 +10,8 @@
     ".": {
       "types": "./src/index.ts",
       "import": "./src/index.ts"
-    }
+    },
+    "./fixtures": "./src/fixtures/events.ts"
   },
   "scripts": {
     "generate:api": "openapi-typescript ../../specs/openapi.yaml -o ./src/generated/api-schema.d.ts",
