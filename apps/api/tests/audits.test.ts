@@ -5,9 +5,17 @@ import { join } from 'node:path';
 import request from 'supertest';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type { Audit, Finding } from '@sentinel/contracts';
+
 import { createApp } from '../src/app.js';
 import { PROBLEM_CONTENT_TYPE } from '../src/lib/problems.js';
-import { resetAuditStore } from '../src/store/audits.js';
+import {
+  appendFindings,
+  createAudit,
+  resetAuditStore,
+  setAuditSummary,
+  transitionAuditStatus,
+} from '../src/store/audits.js';
 
 /** Base path from openapi `servers`. */
 const API_V1 = '/api/v1';
@@ -259,5 +267,228 @@ describe('US-2 — POST /api/v1/audits', () => {
     it('sets the application/problem+json content type header constant', () => {
       expect(PROBLEM_CONTENT_TYPE).toContain('application/problem+json');
     });
+  });
+});
+
+function sampleFinding(ruleId: string): Finding {
+  return {
+    ruleId,
+    title: `Sample finding ${ruleId}`,
+    severity: 'HIGH',
+    filePath: 'src/auth/queries.ts',
+    lineNumber: 42,
+    cweId: 'CWE-89',
+    description: 'User input reaches a SQL query without parameterization.',
+    beforeSnippet: 'db.query(`SELECT * FROM users WHERE id = ${id}`)',
+    afterSnippet: 'db.query("SELECT * FROM users WHERE id = ?", [id])',
+  };
+}
+
+/** Compile-time round-trip assertion against the contracts `Audit` type (US3-AC3). */
+function assertIsAudit(audit: Audit): Audit {
+  return audit;
+}
+
+describe('US-3 - GET /api/v1/audits/:auditId and session state', () => {
+  let localRepoDir: string;
+
+  beforeAll(async () => {
+    localRepoDir = await mkdtemp(join(tmpdir(), 'sentinel-audit-'));
+    await writeFile(join(localRepoDir, 'sample-file.ts'), 'export const sample = 1;\n', 'utf8');
+  });
+
+  afterAll(async () => {
+    await rm(localRepoDir, { recursive: true, force: true });
+  });
+
+  beforeEach(() => {
+    resetAuditStore();
+  });
+
+  /** Creates an audit through the public POST endpoint and returns its id. */
+  async function createAuditViaApi(): Promise<string> {
+    const app = createApp();
+    const response = await request(app).post(`${API_V1}/audits`).send(validRepoUrlConfig());
+    expect(response.status).toBe(201);
+    return response.body.auditId as string;
+  }
+
+  function expectAuditShape(audit: Record<string, unknown>, expectedStatus: string): void {
+    // Round-trips against the `@sentinel/contracts` Audit type at compile time.
+    const typedAudit = assertIsAudit(audit as unknown as Audit);
+    expect(typedAudit.status).toBe(expectedStatus);
+    expect(typedAudit.auditId).toMatch(AUDIT_ID_PATTERN);
+    expect(typedAudit.config).toEqual(validRepoUrlConfig());
+    expect(typedAudit.createdAt).toMatch(
+      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/, // RFC 3339 date-time
+    );
+  }
+
+  it('returns 200 with a queued audit right after creation', async () => {
+    const auditId = await createAuditViaApi();
+    const app = createApp();
+
+    const response = await request(app).get(`${API_V1}/audits/${auditId}`);
+
+    expect(response.status).toBe(200);
+    expect(response.headers['content-type']).toContain('application/json');
+    expectAuditShape(response.body, 'queued');
+    expect(response.body.findings).toEqual([]);
+    expect(response.body.summary).toBeUndefined();
+  });
+
+  it('returns 200 with a running audit and findings accumulated so far', async () => {
+    const auditId = await createAuditViaApi();
+    transitionAuditStatus(auditId, 'running');
+    appendFindings(auditId, [sampleFinding('owasp-a03-injection')]);
+    const app = createApp();
+
+    const response = await request(app).get(`${API_V1}/audits/${auditId}`);
+
+    expect(response.status).toBe(200);
+    expectAuditShape(response.body, 'running');
+    expect(response.body.findings).toHaveLength(1);
+    expect(response.body.findings[0]).toMatchObject({ ruleId: 'owasp-a03-injection' });
+    expect(response.body.summary).toBeUndefined();
+  });
+
+  it('returns 200 with a completed audit including full findings and summary', async () => {
+    const auditId = await createAuditViaApi();
+    transitionAuditStatus(auditId, 'running');
+    appendFindings(auditId, [sampleFinding('owasp-a03-injection'), sampleFinding('tq-thin-tests')]);
+    transitionAuditStatus(auditId, 'completed');
+    setAuditSummary(auditId, { totalFindings: 2, healthScore: 62 });
+    const app = createApp();
+
+    const response = await request(app).get(`${API_V1}/audits/${auditId}`);
+
+    expect(response.status).toBe(200);
+    expectAuditShape(response.body, 'completed');
+    expect(response.body.findings).toHaveLength(2);
+    expect(response.body.summary).toEqual({ totalFindings: 2, healthScore: 62 });
+  });
+
+  it('returns 200 with a failed audit including a summary (terminal unhappy path)', async () => {
+    const auditId = await createAuditViaApi();
+    transitionAuditStatus(auditId, 'running');
+    transitionAuditStatus(auditId, 'failed');
+    setAuditSummary(auditId, { reason: 'agent crashed while analyzing rule set' });
+    const app = createApp();
+
+    const response = await request(app).get(`${API_V1}/audits/${auditId}`);
+
+    expect(response.status).toBe(200);
+    expectAuditShape(response.body, 'failed');
+    expect(response.body.findings).toEqual([]);
+    expect(response.body.summary).toEqual({ reason: 'agent crashed while analyzing rule set' });
+  });
+
+  it('returns 404 Problem Details for an unknown auditId with a valid pattern', async () => {
+    const app = createApp();
+
+    const response = await request(app).get(`${API_V1}/audits/aud_unknown000000`);
+
+    expect(response.status).toBe(404);
+    expect(response.headers['content-type']).toContain('application/problem+json');
+    expect(response.body.type).toBe(PROBLEM_TYPE_URIS.notFound);
+    expect(response.body.status).toBe(404);
+    expect(response.body.title).toBe('Resource not found');
+    expect(response.body.detail).toContain('aud_unknown000000');
+  });
+
+  it('returns 404 Problem Details for an auditId violating the pattern', async () => {
+    const app = createApp();
+
+    for (const invalidId of ['not-an-audit-id', 'AUD_abc123', 'aud_bad-id!']) {
+      const response = await request(app).get(`${API_V1}/audits/${encodeURIComponent(invalidId)}`);
+
+      expect(response.status, `expected 404 for id '${invalidId}'`).toBe(404);
+      expect(response.headers['content-type']).toContain('application/problem+json');
+      expect(response.body.type).toBe(PROBLEM_TYPE_URIS.notFound);
+      expect(response.body.detail).toContain(invalidId);
+    }
+  });
+});
+
+describe('US-3 - audit lifecycle store transitions', () => {
+  beforeEach(() => {
+    resetAuditStore();
+  });
+
+  function seedAudit(): string {
+    const audit = createAudit({ config: validRepoUrlConfig() as never });
+    return audit.auditId;
+  }
+
+  it('walks the full happy path queued, running, completed', () => {
+    const auditId = seedAudit();
+
+    expect(transitionAuditStatus(auditId, 'running')?.status).toBe('running');
+    expect(transitionAuditStatus(auditId, 'completed')?.status).toBe('completed');
+  });
+
+  it('walks the unhappy path queued, running, failed', () => {
+    const auditId = seedAudit();
+
+    expect(transitionAuditStatus(auditId, 'running')?.status).toBe('running');
+    expect(transitionAuditStatus(auditId, 'failed')?.status).toBe('failed');
+  });
+
+  it('rejects invalid lifecycle transitions', () => {
+    const auditId = seedAudit();
+
+    expect(() => transitionAuditStatus(auditId, 'completed')).toThrow(/transition/); // queued -> completed
+    expect(transitionAuditStatus(auditId, 'running')).toBeDefined();
+    expect(() => transitionAuditStatus(auditId, 'queued')).toThrow(/transition/); // backwards
+  });
+
+  it('rejects transitions from terminal states', () => {
+    const auditId = seedAudit();
+    transitionAuditStatus(auditId, 'running');
+    transitionAuditStatus(auditId, 'failed');
+
+    expect(() => transitionAuditStatus(auditId, 'running')).toThrow(/transition/);
+  });
+
+  it('returns undefined for transitions on unknown ids', () => {
+    expect(transitionAuditStatus('aud_unknown000000', 'running')).toBeUndefined();
+  });
+
+  it('accumulates findings in order across multiple appends', () => {
+    const auditId = seedAudit();
+    transitionAuditStatus(auditId, 'running');
+
+    appendFindings(auditId, [sampleFinding('owasp-a03-injection')]);
+    appendFindings(auditId, [sampleFinding('tq-thin-tests')]);
+
+    const stored = transitionAuditStatus(auditId, 'completed');
+    expect(stored?.findings?.map((finding) => finding.ruleId)).toEqual([
+      'owasp-a03-injection',
+      'tq-thin-tests',
+    ]);
+  });
+
+  it('rejects appending findings to a terminal audit', () => {
+    const auditId = seedAudit();
+    transitionAuditStatus(auditId, 'running');
+    transitionAuditStatus(auditId, 'completed');
+
+    expect(() => appendFindings(auditId, [sampleFinding('late-rule')])).toThrow(/terminal/);
+  });
+
+  it('rejects setting a summary before a terminal state', () => {
+    const auditId = seedAudit();
+
+    expect(() => setAuditSummary(auditId, { totalFindings: 0 })).toThrow(/terminal/);
+  });
+
+  it('sets a summary only on terminal states and returns undefined for unknown ids', () => {
+    const auditId = seedAudit();
+    transitionAuditStatus(auditId, 'running');
+    transitionAuditStatus(auditId, 'completed');
+
+    const updated = setAuditSummary(auditId, { totalFindings: 0, healthScore: 100 });
+    expect(updated?.summary).toEqual({ totalFindings: 0, healthScore: 100 });
+    expect(setAuditSummary('aud_unknown000000', { totalFindings: 0 })).toBeUndefined();
   });
 });

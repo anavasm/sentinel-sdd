@@ -6,7 +6,7 @@ import type { AuditConfig } from '@sentinel/contracts';
 
 import { buildProblem, ProblemError, ProblemType } from '../lib/problems.js';
 import { validateAuditConfig } from '../lib/validators.js';
-import { createAudit } from '../store/audits.js';
+import { AUDIT_ID_PATTERN, createAudit, findAuditById } from '../store/audits.js';
 
 /**
  * `POST /api/v1/audits` controller (plan US-2, Task 2.3).
@@ -74,4 +74,39 @@ async function pathIsAccessible(localPath: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+/**
+ * `GET /api/v1/audits/:auditId` controller (plan US-3, Task 3.2).
+ *
+ * Path param is validated against the openapi `auditId` pattern first
+ * (ids violating `^aud_[0-9a-zA-Z]+$` can never exist in the store), then
+ * looked up. Responds `200 Audit` (config echo, RFC 3339 createdAt,
+ * findings accumulated so far, summary once terminal) or `404` Problem
+ * Details with type `not-found` — never an empty 200.
+ */
+export const getAuditHandler: RequestHandler = (req, res, next) => {
+  try {
+    // Under `noUncheckedIndexedAccess` the params record may be typed loose;
+    // the route is always matched with `:auditId`, so default to ''.
+    const auditId = req.params.auditId ?? '';
+    if (!AUDIT_ID_PATTERN.test(auditId)) {
+      throw notFoundProblem(
+        `Audit id '${auditId}' does not match the required pattern ^aud_[0-9a-zA-Z]+$.`,
+      );
+    }
+
+    const audit = findAuditById(auditId);
+    if (audit === undefined) {
+      throw notFoundProblem(`No audit session found with id '${auditId}'.`);
+    }
+
+    res.status(200).json(audit);
+  } catch (error) {
+    next(error);
+  }
+};
+
+function notFoundProblem(detail: string): ProblemError {
+  return new ProblemError(buildProblem(404, ProblemType.NOT_FOUND, { detail }));
 }
