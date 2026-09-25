@@ -7,8 +7,12 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 
 import type { Audit, Finding } from '@sentinel/contracts';
 
+import type { LlmClient, LlmInspection } from '../src/agent/llm.js';
+import { SentinelAuditRunner } from '../src/agent/runner.js';
 import { createApp } from '../src/app.js';
 import { PROBLEM_CONTENT_TYPE } from '../src/lib/problems.js';
+import { validateSentinelEvent } from '../src/lib/validators.js';
+import { resetSseHub, subscribeToAuditStream } from '../src/sse/hub.js';
 import {
   appendFindings,
   createAudit,
@@ -63,7 +67,7 @@ function bodyOfExactSize(targetBytes: number): string {
   return body;
 }
 
-describe('US-2 — POST /api/v1/audits', () => {
+describe('US-2 â€” POST /api/v1/audits', () => {
   let localRepoDir: string;
 
   beforeAll(async () => {
@@ -80,8 +84,10 @@ describe('US-2 — POST /api/v1/audits', () => {
   });
 
   describe('201 happy path', () => {
+    // runner: null - these tests cover POST HTTP semantics only; execution
+    // lives in the US-5 wiring block below and in tests/agent.test.ts.
     it('creates an audit from a repoUrl config', async () => {
-      const app = createApp();
+      const app = createApp({ runner: null });
 
       const response = await request(app).post(`${API_V1}/audits`).send(validRepoUrlConfig());
 
@@ -92,7 +98,7 @@ describe('US-2 — POST /api/v1/audits', () => {
     });
 
     it('creates an audit from an existing localPath (fail-fast existence check passes)', async () => {
-      const app = createApp();
+      const app = createApp({ runner: null });
 
       const response = await request(app)
         .post(`${API_V1}/audits`)
@@ -104,7 +110,7 @@ describe('US-2 — POST /api/v1/audits', () => {
     });
 
     it('accepts a body at exactly the 1 MB limit (boundary)', async () => {
-      const app = createApp();
+      const app = createApp({ runner: null });
 
       const response = await request(app)
         .post(`${API_V1}/audits`)
@@ -118,7 +124,7 @@ describe('US-2 — POST /api/v1/audits', () => {
 
   describe('400 validation failures', () => {
     async function expectValidationProblem(requestBody: Record<string, unknown>): Promise<void> {
-      const app = createApp();
+      const app = createApp({ runner: null });
       const response = await request(app).post(`${API_V1}/audits`).send(requestBody);
 
       expect(response.status).toBe(400);
@@ -138,7 +144,7 @@ describe('US-2 — POST /api/v1/audits', () => {
     });
 
     it('rejects malformed JSON', async () => {
-      const app = createApp();
+      const app = createApp({ runner: null });
       const response = await request(app)
         .post(`${API_V1}/audits`)
         .set('Content-Type', 'application/json')
@@ -192,7 +198,7 @@ describe('US-2 — POST /api/v1/audits', () => {
     });
 
     it('rejects a nonexistent localPath (fail-fast, before agent runtime)', async () => {
-      const app = createApp();
+      const app = createApp({ runner: null });
       const response = await request(app)
         .post(`${API_V1}/audits`)
         .send(validLocalPathConfig('/nonexistent/sentinel/repo'));
@@ -208,7 +214,7 @@ describe('US-2 — POST /api/v1/audits', () => {
 
   describe('413 payload too large', () => {
     it('rejects a body just over the 1 MB limit', async () => {
-      const app = createApp();
+      const app = createApp({ runner: null });
 
       const response = await request(app)
         .post(`${API_V1}/audits`)
@@ -224,7 +230,7 @@ describe('US-2 — POST /api/v1/audits', () => {
 
   describe('Problem Details everywhere', () => {
     it('returns 404 Problem Details for unknown routes', async () => {
-      const app = createApp();
+      const app = createApp({ runner: null });
 
       const response = await request(app).get(`${API_V1}/unknown-route`);
 
@@ -330,7 +336,7 @@ describe('US-3 - GET /api/v1/audits/:auditId and session state', () => {
 
   it('returns 200 with a queued audit right after creation', async () => {
     const auditId = await createAuditViaApi();
-    const app = createApp();
+    const app = createApp({ runner: null });
 
     const response = await request(app).get(`${API_V1}/audits/${auditId}`);
 
@@ -345,7 +351,7 @@ describe('US-3 - GET /api/v1/audits/:auditId and session state', () => {
     const auditId = await createAuditViaApi();
     transitionAuditStatus(auditId, 'running');
     appendFindings(auditId, [sampleFinding('owasp-a03-injection')]);
-    const app = createApp();
+    const app = createApp({ runner: null });
 
     const response = await request(app).get(`${API_V1}/audits/${auditId}`);
 
@@ -362,7 +368,7 @@ describe('US-3 - GET /api/v1/audits/:auditId and session state', () => {
     appendFindings(auditId, [sampleFinding('owasp-a03-injection'), sampleFinding('tq-thin-tests')]);
     transitionAuditStatus(auditId, 'completed');
     setAuditSummary(auditId, { totalFindings: 2, healthScore: 62 });
-    const app = createApp();
+    const app = createApp({ runner: null });
 
     const response = await request(app).get(`${API_V1}/audits/${auditId}`);
 
@@ -377,7 +383,7 @@ describe('US-3 - GET /api/v1/audits/:auditId and session state', () => {
     transitionAuditStatus(auditId, 'running');
     transitionAuditStatus(auditId, 'failed');
     setAuditSummary(auditId, { reason: 'agent crashed while analyzing rule set' });
-    const app = createApp();
+    const app = createApp({ runner: null });
 
     const response = await request(app).get(`${API_V1}/audits/${auditId}`);
 
@@ -388,7 +394,7 @@ describe('US-3 - GET /api/v1/audits/:auditId and session state', () => {
   });
 
   it('returns 404 Problem Details for an unknown auditId with a valid pattern', async () => {
-    const app = createApp();
+    const app = createApp({ runner: null });
 
     const response = await request(app).get(`${API_V1}/audits/aud_unknown000000`);
 
@@ -401,7 +407,7 @@ describe('US-3 - GET /api/v1/audits/:auditId and session state', () => {
   });
 
   it('returns 404 Problem Details for an auditId violating the pattern', async () => {
-    const app = createApp();
+    const app = createApp({ runner: null });
 
     for (const invalidId of ['not-an-audit-id', 'AUD_abc123', 'aud_bad-id!']) {
       const response = await request(app).get(`${API_V1}/audits/${encodeURIComponent(invalidId)}`);
@@ -494,5 +500,177 @@ describe('US-3 - audit lifecycle store transitions', () => {
     const updated = setAuditSummary(auditId, { totalFindings: 0, healthScore: 100 });
     expect(updated?.summary).toEqual({ totalFindings: 0, healthScore: 100 });
     expect(setAuditSummary('aud_unknown000000', { totalFindings: 0 })).toBeUndefined();
+  });
+});
+
+/**
+ * US-5 wiring (plan Task 5.4, US5-AC1/AC2): the production default runner is
+ * the real {@link SentinelAuditRunner}; here it is wired through `createApp`
+ * with a stub LLM adapter (ASD Â§10.3 â€” no real LLM calls) and the real
+ * filesystem reader over a temp `localPath`, closing the vertical slice:
+ * POST 201 -> agent executes -> GET 200 completed with findings + summary,
+ * and every emitted stream event stays in-contract.
+ */
+describe('US-5 â€” POST /audits wires the real agent runner end-to-end', () => {
+  let localRepoDir: string;
+
+  beforeAll(async () => {
+    localRepoDir = await mkdtemp(join(tmpdir(), 'sentinel-us5-wiring-'));
+    await writeFile(
+      join(localRepoDir, 'injection.ts'),
+      "db.query(`SELECT * FROM users WHERE id = '${id}'`);\n",
+      'utf8',
+    );
+  });
+
+  afterAll(async () => {
+    await rm(localRepoDir, { recursive: true, force: true });
+  });
+
+  beforeEach(() => {
+    resetAuditStore();
+    resetSseHub();
+  });
+
+  /** Stub LLM adapter: finds the SQL injection in every inspected snippet. */
+  function stubLlmWithFinding(stubFinding: Finding): LlmClient {
+    return {
+      providerName: 'stub-llm',
+      async inspectSnippet(): Promise<LlmInspection> {
+        return { status: 'succeeded', providerUsed: 'stub-llm', finding: stubFinding };
+      },
+    };
+  }
+
+  function findingFor(filePath: string): Finding {
+    return {
+      ruleId: 'owasp-a03-injection',
+      title: 'SQL Injection in user lookup',
+      severity: 'HIGH',
+      filePath,
+      lineNumber: 1,
+      cweId: 'CWE-89',
+      description: 'User-supplied input is concatenated into a SQL query.',
+      beforeSnippet: "db.query(`SELECT * FROM users WHERE id = '${id}'`);",
+      afterSnippet: 'db.query("SELECT * FROM users WHERE id = ?", [id]);',
+    };
+  }
+
+  /** Polls GET /audits/{id} until the audit reaches a terminal status. */
+  async function waitForTerminalAudit(
+    app: ReturnType<typeof createApp>,
+    auditId: string,
+  ): Promise<Audit> {
+    for (let attempt = 0; attempt < 500; attempt += 1) {
+      const response = await request(app).get(`${API_V1}/audits/${auditId}`);
+      if (response.status === 200 && ['completed', 'failed'].includes(response.body.status)) {
+        return response.body as Audit;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    throw new Error(`audit ${auditId} did not reach a terminal state in time`);
+  }
+
+  function collectStreamEvents(auditId: string): Array<Record<string, unknown>> {
+    const events: Array<Record<string, unknown>> = [];
+    const subscription = subscribeToAuditStream(auditId, {
+      onEvent(event) {
+        events.push(event as unknown as Record<string, unknown>);
+      },
+      onClose() {},
+    });
+    if (subscription === null) {
+      throw new Error(`no event channel for audit ${auditId}`);
+    }
+    return events;
+  }
+
+  it('completes the vertical slice: POST 201 -> agent events -> GET completed with findings + summary', async () => {
+    const runner = new SentinelAuditRunner({
+      llmClient: stubLlmWithFinding(findingFor('injection.ts')),
+    });
+    const app = createApp({ runner });
+
+    const postResponse = await request(app)
+      .post(`${API_V1}/audits`)
+      .send(validLocalPathConfig(localRepoDir));
+    expect(postResponse.status).toBe(201);
+    expect(postResponse.body.status).toBe('queued');
+    const auditId = postResponse.body.auditId as string;
+
+    const audit = await waitForTerminalAudit(app, auditId);
+
+    expect(audit.status).toBe('completed');
+    expect(audit.auditId).toBe(auditId);
+    expect(audit.findings).toHaveLength(1);
+    expect(audit.findings?.[0]).toMatchObject({
+      ruleId: 'owasp-a03-injection',
+      severity: 'HIGH',
+      filePath: 'injection.ts',
+    });
+    // Summary is generated by the runner and mirrored into the store (US5-AC1).
+    const summary = audit.summary as Record<string, unknown>;
+    expect(summary).toBeTruthy();
+    expect(summary.findings).toEqual({ LOW: 0, MEDIUM: 0, HIGH: 1, CRITICAL: 0 });
+    expect(summary.filesAnalyzed).toBe(1);
+    expect(summary.durationSeconds).toBeGreaterThanOrEqual(0);
+  });
+
+  it('keeps every streamed event in-contract and closes the stream after the terminal event', async () => {
+    const runner = new SentinelAuditRunner({
+      llmClient: stubLlmWithFinding(findingFor('injection.ts')),
+    });
+    const app = createApp({ runner });
+
+    const postResponse = await request(app)
+      .post(`${API_V1}/audits`)
+      .send(validLocalPathConfig(localRepoDir));
+    const auditId = postResponse.body.auditId as string;
+
+    await waitForTerminalAudit(app, auditId);
+
+    const events = collectStreamEvents(auditId);
+    expect(events.length).toBeGreaterThan(0);
+    expect((events.at(-1) as Record<string, unknown>).type).toBe('AUDIT_COMPLETED');
+
+    for (const [index, event] of events.entries()) {
+      expect(validateSentinelEvent(event as never), `event ${index} must validate`).toBe(true);
+      expect(event.auditId).toBe(auditId);
+      expect(event.id).toBe(index + 1); // monotonic per-audit sequence (D-6)
+    }
+  });
+
+  it('replays the finished audit over the SSE stream endpoint (replay-then-close)', async () => {
+    const runner = new SentinelAuditRunner({
+      llmClient: stubLlmWithFinding(findingFor('injection.ts')),
+    });
+    const app = createApp({ runner });
+
+    const postResponse = await request(app)
+      .post(`${API_V1}/audits`)
+      .send(validLocalPathConfig(localRepoDir));
+    const auditId = postResponse.body.auditId as string;
+    await waitForTerminalAudit(app, auditId);
+
+    const response = await request(app)
+      .get(`${API_V1}/audits/${auditId}/stream`)
+      .set('Accept', 'text/event-stream')
+      .expect(200)
+      .expect('Content-Type', /text\/event-stream/);
+
+    // Buffered replay incl. the terminal AUDIT_COMPLETED frame, then close.
+    expect(response.text).toContain('event: AUDIT_COMPLETED');
+    expect(response.text).toContain('event: VULNERABILITY_FOUND');
+    const dataLines = response.text
+      .split('\n')
+      .filter((line) => line.startsWith('data: '))
+      .map((line) => line.slice('data: '.length));
+    expect(dataLines.length).toBeGreaterThan(0);
+    for (const [index, data] of dataLines.entries()) {
+      expect(
+        validateSentinelEvent(JSON.parse(data) as never),
+        `frame ${index} must validate`,
+      ).toBe(true);
+    }
   });
 });

@@ -77,8 +77,11 @@ function parseSseFrames(raw: string): CollectedFrame[] {
 }
 
 /** Boots the app with an optional runner on an ephemeral port. */
-function startServer(runner?: StubAuditRunner): { server: Server; baseUrl: string } {
-  const server = createApp(runner === undefined ? {} : { runner }).listen(0);
+function startServer(runner: StubAuditRunner = new StubAuditRunner()): { server: Server; baseUrl: string } {
+  // US-4 tests the SSE channel against the deterministic fixture stub; the
+  // production default runner (real LLM-backed, US-5) is exercised in
+  // tests/agent.test.ts and the wiring tests in tests/audits.test.ts.
+  const server = createApp({ runner }).listen(0);
   const address = server.address() as AddressInfo;
   return { server, baseUrl: `http://localhost:${address.port}` };
 }
