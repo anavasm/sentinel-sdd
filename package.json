@@ -11,7 +11,9 @@
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
-    "build": "turbo run build"
+    "build": "turbo run build",
+    "dev": "node scripts/dev-federation.mjs",
+    "dev:host": "pnpm --filter @sentinel/mfe-shell dev"
   },
   "devDependencies": {
     "turbo": "^2"
