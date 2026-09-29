@@ -136,6 +136,7 @@ None remaining — the C-01 topology question was surfaced and resolved by the u
 | Layer | Technology |
 |---|---|
 | Framework | React 18 + TypeScript (strict), Vite |
+| Styling | **Tailwind CSS (v3/v4) + PostCSS — standardized across all 3 MFEs** (per-workspace `tailwind.config.ts`, `postcss.config.js`, base `@tailwind` directives — see ADR-005 rule 6) |
 | Federation | `@originjs/vite-plugin-federation` (shell exposes layout; remotes expose `ConfigView` / `MetricsView`) |
 | Routing | React Router (shell-owned) |
 | Server state | TanStack Query (POST/GET caching & invalidation across MFE boundaries) |
@@ -219,7 +220,7 @@ pnpm --filter @sentinel/contracts validate   # contract gate stays green (C-04)
 **Goal:** Three Vite React workspaces exist, federation host/remotes resolve at runtime, the shell routes between them, and all quality gates pass with smoke tests.
 
 **Tasks:**
-- **Task 1.1** — Scaffold `apps/mfe-shell`, `apps/mfe-config`, `apps/mfe-metrics`: `package.json` (`@sentinel/mfe-*`, scripts `dev`/`build`/`preview`/`lint`/`typecheck`/`test`), strict `tsconfig.json`, Vite config with `@originjs/vite-plugin-federation` (shell remotes: config@/remotes/config.js, metrics@/remotes/metrics.js; remotes expose `./ConfigView`, `./MetricsView`; shared singleton: react, react-dom, `@sentinel/contracts`). **Effort:** M · **AC:** US1-AC1, US1-AC2
+- **Task 1.1** — Scaffold `apps/mfe-shell`, `apps/mfe-config`, `apps/mfe-metrics`: `package.json` (`@sentinel/mfe-*`, scripts `dev`/`build`/`preview`/`lint`/`typecheck`/`test`), strict `tsconfig.json`, Vite config with `@originjs/vite-plugin-federation` (shell remotes: config@/remotes/config.js, metrics@/remotes/metrics.js; remotes expose `./ConfigView`, `./MetricsView`; shared singleton: react, react-dom, `@sentinel/contracts`). **Tailwind CSS initialization per workspace (ADR-005 rule 6):** add `tailwind` + `postcss` + `autoprefixer` (or Tailwind v4's Vite plugin) as devDependencies in all 3 workspaces; create per-workspace `tailwind.config.ts` (content globs scoped to that workspace's `src/`, shared design tokens mirrored in each `theme` extension), `postcss.config.js` (tailwind + autoprefixer plugins), and a CSS entry (`src/index.css`) with the base `@tailwind base; @tailwind components; @tailwind utilities;` directives — keeping Tailwind scoping per workspace so utility classes generated per remote never collide when injected into the host at runtime. **Effort:** M · **AC:** US1-AC1, US1-AC2
 - **Task 1.2** — Wire dev ports (D-WEB-2: 5173/5174/5175) and CORS for cross-MFE remote fetching in dev; register workspaces in `turbo.json` (`dev` runs all 3 + `apps/api` via `turbo run dev --parallel`). **Effort:** S · **AC:** US1-AC3
 - **Task 1.3** — Host routing in `mfe-shell`: React Router with `/` → lazy `ConfigView`, `/audits/:auditId` → lazy `MetricsView`; fallback route → friendly not-found. **Effort:** S · **AC:** US1-AC4
 - **Task 1.4** — Shared API client seam in the shell (`src/lib/apiClient.ts`): typed `fetch` wrapper reading `VITE_API_BASE_URL` (default `http://localhost:3000/api/v1`), parsing RFC 9457 Problems into a typed `ApiProblem` error. **Effort:** S · **AC:** US1-AC4

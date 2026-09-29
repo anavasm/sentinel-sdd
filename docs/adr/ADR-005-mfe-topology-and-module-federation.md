@@ -34,6 +34,7 @@ Rules established with the topology:
 3. **Fixed dev ports (D-WEB-2):** shell 5173, config 5174, metrics 5175 — required for stable remote URLs and the future Playwright suite (ASD §10.4).
 4. **Dual-mode remotes:** every remote must also run standalone (`vite dev` on its own port) so teams develop without booting the host; federation is added at the edges, not baked into component code.
 5. **No remote-to-remote imports.** Shared UI/API helpers live in the shell (or a future `packages/` module) — never in a sibling remote.
+6. **Styling standardizes on Tailwind CSS (v3/v4) across all three workspaces** (`mfe-shell`, `mfe-config`, `mfe-metrics`). Tailwind (plus PostCSS) and the base `@tailwind` directives are initialized **per workspace** — each remote owns its own `tailwind.config.ts`, `postcss.config.js`, and CSS entry with its own `@tailwind base/components/utilities` directives. Rationale: under runtime Module Federation each remote is built independently, so per-workspace scoping guarantees design consistency (identical utility vocabulary, shared design tokens via each config's `theme` extension) while avoiding duplicate/generated class collisions when remote bundles are injected into the host at runtime. No CSS-in-JS, no second styling framework, and no shared global stylesheet imported across the federation boundary (only Tailwind tokens/theme values are kept in sync manually, or via a future shared `packages/` preset if drift becomes a problem).
 
 ### Code references (planned placement — no code written yet)
 
