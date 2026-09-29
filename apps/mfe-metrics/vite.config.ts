@@ -19,6 +19,7 @@ export default defineConfig({
       shared: {
         react: { requiredVersion: '^18.3.1' },
         'react-dom': { requiredVersion: '^18.3.1' },
+        'react-router-dom': { requiredVersion: '^6.28.0' },
         '@sentinel/contracts': {},
       },
     }),

@@ -21,6 +21,10 @@ export type {
 } from './generated/events.js';
 
 // ── API (specs/openapi.yaml) ─────────────────────────────────────────────────
+
+// -- API client seam (ADR-007: shared runtime, single federation copy) -------
+export { createApiFetch, ApiProblemError, UnparseableProblemError } from './api-client.js';
+export type { ApiFetch } from './api-client.js';
 import type { components } from './generated/api-schema.d.ts';
 
 /** Audit launch configuration (repoUrl XOR localPath). */
