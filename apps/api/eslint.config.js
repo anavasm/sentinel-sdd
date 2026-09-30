@@ -6,6 +6,11 @@ export default tseslint.config(
   eslint.configs.recommended,
   ...tseslint.configs.recommended,
   {
+    languageOptions: {
+      parserOptions: {
+        tsconfigRootDir: import.meta.dirname,
+      },
+    },
     rules: {
       // TODO(US-2): replace bootstrap/shutdown logs with structured pino logging
       // (Node.js standard: no console.log in production code). US-1 has no logger yet.

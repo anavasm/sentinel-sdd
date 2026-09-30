@@ -1,8 +1,10 @@
 import express, { type Express } from 'express';
+import cors from 'cors';
 
 import type { AuditRunner } from './agent/runner.js';
 import { SentinelAuditRunner } from './agent/runner.js';
 import { notFoundHandler, problemErrorHandler } from './lib/error-handler.js';
+import { resolveAllowedOrigins } from './lib/config.js';
 import { createApiV1Router } from './routes/api-v1.js';
 
 /**
@@ -22,6 +24,12 @@ import { createApiV1Router } from './routes/api-v1.js';
 /** Request body limit per D-API-2 (openapi 413 response). */
 const REQUEST_BODY_LIMIT_BYTES = '1mb';
 
+/** Explicit CORS allowlist per security baseline (never `*`). */
+const CORS_METHODS = ['GET', 'POST', 'OPTIONS'] as const;
+
+/** Headers browsers may send cross-origin, incl. SSE resume (Last-Event-ID). */
+const CORS_ALLOWED_HEADERS = ['Content-Type', 'Accept', 'Last-Event-ID'] as const;
+
 export interface CreateAppOptions {
   /**
    * Audit runner kicked on POST success. Defaults to the real LLM-backed
@@ -35,6 +43,15 @@ export function createApp(options: CreateAppOptions = {}): Express {
   const app = express();
 
   app.disable('x-powered-by');
+
+  // CORS: explicit origin allowlist (never `*`), preflight for GET/POST.
+  app.use(
+    cors({
+      origin: resolveAllowedOrigins(),
+      methods: [...CORS_METHODS],
+      allowedHeaders: [...CORS_ALLOWED_HEADERS],
+    }),
+  );
 
   app.use(express.json({ limit: REQUEST_BODY_LIMIT_BYTES }));
 
