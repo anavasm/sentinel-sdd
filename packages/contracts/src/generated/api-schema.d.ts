@@ -44,6 +44,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/audits/{auditId}/findings/remediate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Apply the AI-generated fix for one finding
+         * @description Asks the Agent Engine to apply the After snippet of the finding identified by the request body locator (ruleId + filePath + optional lineNumber — Finding has no stable id, so the locator mirrors the VULNERABILITY_FOUND payload identity). Idempotent per locator within an audit session.
+         */
+        post: operations["remediateFinding"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/audits/{auditId}/stream": {
         parameters: {
             query?: never;
@@ -138,6 +158,27 @@ export interface components {
             summary?: {
                 [key: string]: unknown;
             };
+        };
+        /** @description Uniquely identifies a finding within one audit: (ruleId, filePath, optional lineNumber). Mirrors the identity of the VULNERABILITY_FOUND event payload. */
+        FindingLocator: {
+            /** @example owasp-a03-injection */
+            ruleId: string;
+            /** @example src/auth/queries.ts */
+            filePath: string;
+            lineNumber?: number;
+        };
+        /** @description Outcome of a patch application attempt. */
+        RemediationResult: {
+            /**
+             * @description Whether the After snippet was applied to the file.
+             * @enum {string}
+             */
+            status: "applied" | "failed";
+            /**
+             * @description Human-readable outcome detail shown on the finding card.
+             * @example Patch applied to src/auth/queries.ts (1 hunk)
+             */
+            message: string;
         };
         /** @description RFC 9457 Problem Details (D-2) — single error model for all REST failures. */
         Problem: {
@@ -452,6 +493,63 @@ export interface operations {
             };
             /** @description No audit exists with the given identifier in this session. */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    remediateFinding: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description Audit identifier returned by createAudit (prefixed `aud_`).
+                 * @example aud_123
+                 */
+                auditId: components["parameters"]["AuditId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FindingLocator"];
+            };
+        };
+        responses: {
+            /** @description Patch application outcome (applied or failed with reason). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RemediationResult"];
+                };
+            };
+            /** @description Request body failed validation (e.g. unknown ruleId). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No audit or no matching finding in this session. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The patch is no longer applicable to the current file state. */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

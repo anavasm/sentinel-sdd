@@ -111,6 +111,51 @@ paths:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/Problem'
+  /audits/{auditId}/findings/remediate:
+    post:
+      operationId: remediateFinding
+      summary: Apply the AI-generated fix for one finding
+      description: >
+        Asks the Agent Engine to apply the After snippet of the finding
+        identified by the request body locator (ruleId + filePath + optional
+        lineNumber — Finding has no stable id, so the locator mirrors the
+        VULNERABILITY_FOUND payload identity). Idempotent per locator within
+        an audit session.
+      tags:
+        - audits
+      parameters:
+        - $ref: '#/components/parameters/AuditId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FindingLocator'
+      responses:
+        '200':
+          description: Patch application outcome (applied or failed with reason).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RemediationResult'
+        '400':
+          description: Request body failed validation (e.g. unknown ruleId).
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '404':
+          description: No audit or no matching finding in this session.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '409':
+          description: The patch is no longer applicable to the current file state.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
   /audits/{auditId}/stream:
     get:
       operationId: streamAuditEvents
@@ -322,6 +367,42 @@ components:
           type: object
           description: Final summary; present once status is completed or failed.
           additionalProperties: true
+    FindingLocator:
+      type: object
+      description: >
+        Uniquely identifies a finding within one audit: (ruleId, filePath,
+        optional lineNumber). Mirrors the identity of the VULNERABILITY_FOUND
+        event payload.
+      required:
+        - ruleId
+        - filePath
+      properties:
+        ruleId:
+          type: string
+          example: owasp-a03-injection
+        filePath:
+          type: string
+          example: src/auth/queries.ts
+        lineNumber:
+          type: integer
+          minimum: 1
+    RemediationResult:
+      type: object
+      description: Outcome of a patch application attempt.
+      required:
+        - status
+        - message
+      properties:
+        status:
+          type: string
+          enum:
+            - applied
+            - failed
+          description: Whether the After snippet was applied to the file.
+        message:
+          type: string
+          description: Human-readable outcome detail shown on the finding card.
+          example: Patch applied to src/auth/queries.ts (1 hunk)
     Problem:
       type: object
       description: RFC 9457 Problem Details (D-2) — single error model for all REST failures.

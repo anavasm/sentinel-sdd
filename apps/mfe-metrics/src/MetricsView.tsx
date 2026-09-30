@@ -89,7 +89,7 @@ export function MetricsView(): JSX.Element {
         )}
         {selectedTab === 'Findings' && (
           <div role="tabpanel" aria-label="Findings panel">
-            <FindingsList findings={findings} />
+            <FindingsList findings={findings} auditId={auditId} />
           </div>
         )}
         {selectedTab === 'All Events' && (

@@ -35,6 +35,10 @@ export type Audit = components['schemas']['Audit'];
 export type AuditCreated = components['schemas']['AuditCreated'];
 /** One actionable finding with Before/After snippets. */
 export type Finding = components['schemas']['Finding'];
+/** Identity of a finding within one audit (ruleId + filePath + lineNumber?). */
+export type FindingLocator = components['schemas']['FindingLocator'];
+/** Outcome of a patch application attempt (US-5). */
+export type RemediationResult = components['schemas']['RemediationResult'];
 /** Severity levels used for thresholds and findings. */
 export type Severity = components['schemas']['Severity'];
 /** Audit lifecycle state. */

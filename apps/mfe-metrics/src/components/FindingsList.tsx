@@ -8,9 +8,11 @@ import { FindingCard } from './FindingCard';
 
 export interface FindingsListProps {
   readonly findings: readonly Finding[];
+  /** Active audit owning the findings; forwarded to enable remediation (US-5). */
+  readonly auditId?: string | undefined;
 }
 
-export function FindingsList({ findings }: FindingsListProps): JSX.Element {
+export function FindingsList({ findings, auditId }: FindingsListProps): JSX.Element {
   if (findings.length === 0) {
     return (
       <p className="rounded-lg border border-slate-700/60 bg-slate-800/40 p-4 text-sm text-slate-400">
@@ -22,7 +24,11 @@ export function FindingsList({ findings }: FindingsListProps): JSX.Element {
   return (
     <div className="space-y-3" data-testid="findings-list" aria-label="Vulnerability findings">
       {findings.map((finding) => (
-        <FindingCard key={`${finding.ruleId}-${finding.filePath}-${finding.lineNumber ?? 'nolines'}`} finding={finding} />
+        <FindingCard
+          key={`${finding.ruleId}-${finding.filePath}-${finding.lineNumber ?? 'nolines'}`}
+          finding={finding}
+          auditId={auditId}
+        />
       ))}
     </div>
   );
