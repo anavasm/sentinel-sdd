@@ -1,115 +1,123 @@
 /**
- * MetricsView surface tests (US-3): route-param consumption, connection status
- * badge, and live timeline indicator, driven through the MockEventSource
- * installed in tests/setup.ts.
+ * MetricsView integration tests (US-4): the dashboard assembles header, tabs,
+ * timeline and findings while the SSE stream transitions
+ * CONNECTING → thoughts → findings → AUDIT_COMPLETED.
  */
-import { act, render, screen } from '@testing-library/react';
+import { act, render, screen, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { describe, expect, it } from 'vitest';
-import type { SentinelAISSEEventContract } from '@sentinel/contracts';
 import { MetricsView } from '../src/MetricsView';
 import { MockEventSource } from './mocks/eventSource';
+import {
+  AUDIT_ID,
+  completedEvent,
+  emitStreamEvent,
+  findingEvent,
+  thoughtEvent,
+  toolExecutionEvent,
+} from './mocks/fixtures';
 
-const AUDIT_ID = 'aud_view001';
-
-/** Mounts MetricsView under a router at /audits/:auditId (host routing, ADR-005). */
 function renderMetricsView(auditPath: string): void {
   render(
     <MemoryRouter initialEntries={[auditPath]}>
+      {/* MetricsView reads `auditId` from useParams; the route must be declared
+          for the hook to receive it and open the (mock) EventSource. */}
       <Routes>
         <Route path="/audits/:auditId" element={<MetricsView />} />
-        <Route path="/" element={<MetricsView />} />
       </Routes>
     </MemoryRouter>,
   );
 }
 
-function emitEvent(event: SentinelAISSEEventContract): void {
-  MockEventSource.lastInstance?.simulateOpen();
-  MockEventSource.lastInstance?.emit(event.type, JSON.stringify(event));
-}
-
-function thoughtEvent(id: number): SentinelAISSEEventContract {
-  return {
-    id,
-    type: 'AGENT_THOUGHT',
-    timestamp: `2026-09-23T10:00:0${id}.000Z`,
-    auditId: AUDIT_ID,
-    payload: { content: `Reasoning step ${id}` },
-  };
-}
-
-function completedEvent(id: number): SentinelAISSEEventContract {
-  return {
-    id,
-    type: 'AUDIT_COMPLETED',
-    timestamp: '2026-09-23T10:02:00.000Z',
-    auditId: AUDIT_ID,
-    payload: { status: 'completed', healthScore: 72 },
-  };
-}
-
-function expectBadge(label: string): void {
-  expect(screen.getByTestId('stream-status-badge')).toHaveTextContent(label);
-}
-
 describe('mfe-metrics MetricsView', () => {
-  it('mounts and renders its heading', () => {
-    renderMetricsView('/');
+  it('mounts with the summary header and Timeline tab active by default', () => {
+    renderMetricsView(`/audits/${AUDIT_ID}`);
 
     expect(screen.getByRole('heading', { name: 'Audit Execution Metrics' })).toBeInTheDocument();
+    expect(screen.getByTestId('tab-Timeline')).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByTestId('stream-status-badge')).toHaveTextContent('Connecting');
+    expect(screen.getByText(/timeline will appear here/i)).toBeInTheDocument();
   });
 
-  it('shows Connecting while the stream is opening', () => {
-    renderMetricsView(`/audits/${AUDIT_ID}`);
-
-    expectBadge('Connecting');
-    expect(MockEventSource.lastInstance?.url).toContain(`/audits/${AUDIT_ID}/stream`);
-  });
-
-  it('shows the live badge once the stream opens', () => {
+  it('streams thoughts into the timeline as they arrive', () => {
     renderMetricsView(`/audits/${AUDIT_ID}`);
 
     act(() => {
-      MockEventSource.lastInstance?.simulateOpen();
+      emitStreamEvent(thoughtEvent(1, 'Planning the audit', 'clone'));
+      emitStreamEvent(toolExecutionEvent(2, 'succeeded'));
     });
 
-    expectBadge('Live stream active');
+    expect(screen.getByTestId('stream-status-badge')).toHaveTextContent('Live stream active');
+    expect(screen.getByTestId('event-timeline').children).toHaveLength(2);
+    expect(screen.getByText('Planning the audit')).toBeInTheDocument();
   });
 
-  it('renders the live timeline as events arrive', () => {
+  it('shows findings under the Findings tab with severity badges', () => {
     renderMetricsView(`/audits/${AUDIT_ID}`);
 
     act(() => {
-      emitEvent(thoughtEvent(1));
-      emitEvent(thoughtEvent(2));
+      emitStreamEvent(findingEvent(1, 'HIGH'));
+    });
+    act(() => {
+      screen.getByTestId('tab-Findings').click();
     });
 
-    expect(screen.getByTestId('live-event-timeline').children).toHaveLength(2);
-    expect(screen.getByText('Live timeline (2 events)')).toBeInTheDocument();
-    expectBadge('Live stream active');
+    const findingsPanel = screen.getByLabelText('Findings panel');
+    expect(within(findingsPanel).getAllByTestId('finding-card')).toHaveLength(1);
+    expect(
+      within(findingsPanel).getByTestId('finding-severity'),
+    ).toHaveTextContent('HIGH');
+    expect(screen.getByTestId('findings-counter-HIGH')).toHaveTextContent('1 HIGH');
   });
 
-  it('shows Completed and stops the stream on AUDIT_COMPLETED', () => {
+  it('renders every event type in the All Events tab', () => {
     renderMetricsView(`/audits/${AUDIT_ID}`);
-    const eventSource = MockEventSource.lastInstance;
 
     act(() => {
-      emitEvent(thoughtEvent(1));
-      emitEvent(completedEvent(2));
+      emitStreamEvent(thoughtEvent(1));
+      emitStreamEvent(toolExecutionEvent(2, 'started'));
+      emitStreamEvent(findingEvent(3, 'LOW'));
+    });
+    act(() => {
+      screen.getByTestId('tab-All Events').click();
     });
 
-    expectBadge('Completed');
-    expect(eventSource?.close).toHaveBeenCalledTimes(1);
+    const allEventsPanel = screen.getByLabelText('All events panel');
+    expect(within(allEventsPanel).getAllByRole('listitem')).toHaveLength(3);
+    expect(within(allEventsPanel).getByText('VULNERABILITY_FOUND')).toBeInTheDocument();
   });
 
-  it('shows Connection error on transport failure', () => {
+  it('completes the stream: badge → Completed, health score visible', () => {
+    renderMetricsView(`/audits/${AUDIT_ID}`);
+
+    act(() => {
+      emitStreamEvent(findingEvent(1, 'MEDIUM'));
+      emitStreamEvent(completedEvent(2));
+    });
+
+    expect(screen.getByTestId('stream-status-badge')).toHaveTextContent('Completed');
+    expect(screen.getByTestId('health-score')).toHaveTextContent('Health score: 72/100');
+    expect(screen.getByText(/see the\s*Findings tab/i)).toBeInTheDocument();
+  });
+
+  it('shows the connection error badge on transport failure', () => {
     renderMetricsView(`/audits/${AUDIT_ID}`);
 
     act(() => {
       MockEventSource.lastInstance?.simulateError();
     });
 
-    expectBadge('Connection error');
+    expect(screen.getByTestId('stream-status-badge')).toHaveTextContent('Connection error');
+  });
+
+  it('shows the failed-audit alert when the audit completes with failure', () => {
+    renderMetricsView(`/audits/${AUDIT_ID}`);
+
+    act(() => {
+      emitStreamEvent(completedEvent(1, 'failed'));
+    });
+
+    expect(screen.getByRole('alert')).toHaveTextContent('Audit failed: Agent engine crashed mid-audit');
+    expect(screen.getByTestId('stream-status-badge')).toHaveTextContent('Completed');
   });
 });
