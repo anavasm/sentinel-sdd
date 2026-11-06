@@ -40,7 +40,9 @@ The MVP consists of three functional modules:
 | AI-generated refactor snippets | Automatic PR creation / commit application |
 | Markdown report export | PDF/HTML exports, dashboards persistence |
 | In-memory audit session storage | Database persistence, audit history |
-| No-auth PoC / simulated API key | Real authentication, multi-tenancy |
+| No-auth PoC restricted to loopback (NFR-S1/S4) | Shared/remote deployment, real authentication, multi-tenancy |
+
+The no-auth scope applies only to a developer-local PoC. The API must bind to loopback; a shared or remote deployment is prohibited until authentication and authorization are designed. Local repository paths and LLM egress follow the security boundaries in `03-nfr.md` and ADR-008.
 
 ## 2.3 Coverage Strategy (High-Level Approach)
 
@@ -61,6 +63,6 @@ Decoupled TypeScript monorepo:
 
 | Dependency | Type | Notes |
 |---|---|---|
-| LLM provider (free-tier API or local Ollama) | External service | Behind an abstraction layer; Ollama as offline fallback (see CONCERN-004 in `ASD.md`) |
+| LLM provider (local Ollama by default; external provider only with operator opt-in) | External service | Behind an abstraction layer; remote egress is disabled unless explicitly enabled by the server operator (see ADR-008) |
 | Target Git repositories | External system | Audited via clone (Git URL) or direct filesystem access (local repo) |
 | npm/pnpm registry | Toolchain | Package distribution; no paid dependencies |

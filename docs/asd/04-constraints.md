@@ -22,7 +22,7 @@
 
 | ID | Constraint | Implication |
 |---|---|---|
-| C-06 | **Budget: $0** | Free-tier LLM APIs, local Ollama models, or free internal CLI tools only. No paid cloud, no paid SaaS, no paid npm dependencies. Drives in-memory persistence (no DB) and local-only infrastructure (see `07-infrastructure.md`) |
+| C-06 | **Budget: $0** | Local Ollama by default; free-tier LLM APIs only with explicit server-operator opt-in. No paid cloud, no paid SaaS, no paid npm dependencies. Drives in-memory persistence (no DB) and local-only infrastructure (see `07-infrastructure.md`) |
 
 ## 4.4 Delivery Constraints
 
@@ -30,6 +30,10 @@
 |---|---|---|
 | C-07 | **15-day MVP timeframe** | Favor simplicity: in-memory persistence, no-auth, minimal infrastructure. Architecture avoids premature scalability |
 | C-08 | SDD acceptance gates before application code | `/specs` contracts + architecture diagram must be validated first (see `02-functional-overview.md` §2.4) |
+| C-09 | **The unauthenticated API is loopback-only** | The PoC must not listen on non-loopback interfaces. CORS does not substitute for this network boundary or authentication. |
+| C-10 | **Local repository paths are allowlisted** | `SENTINEL_ALLOWED_REPO_ROOTS` defines permitted roots; unset/empty denies local-path audits. Canonical path resolution must reject escapes, including symlinks outside an allowed root. |
+| C-11 | **LLM egress is local-only by default** | External LLM use requires explicit server-operator opt-in through `SENTINEL_ALLOW_EXTERNAL_LLM=true`; remote endpoints are not contacted otherwise. |
+| C-12 | **Secret handling fails closed** | Exclude known sensitive files and redact detected secrets before LLM egress. If detection or redaction fails, the affected snippet is not sent. |
 
 ## 4.5 Constraint ↔ Tactic Coverage
 
@@ -38,5 +42,8 @@
 | NFR-P1 (SSE latency < 500ms) | Direct SSE pipe; async Agent Engine decoupled from stream hub |
 | NFR-A2 (in-order delivery) | Single SSE hub per audit with ordered event queue |
 | NFR-A3 (provider resilience) | LLM abstraction layer + Ollama fallback + graceful degradation events |
+| NFR-S1/S4 (local-only no-auth boundary) | Bind the API to loopback; do not treat CORS as access control |
+| NFR-S5 (local repository authorization) | Canonicalized allowlisted roots; reject path and symlink escapes |
+| NFR-S6/S7 (controlled LLM egress) | Local provider by default; operator opt-in for remote providers; exclude/redact secrets and fail closed |
 | NFR-O3 (quality gates) | Testing Trophy strategy (see `10-testing.md`) |
 | C-01/C-05 (modularity) | Module Federation + monorepo package boundaries |

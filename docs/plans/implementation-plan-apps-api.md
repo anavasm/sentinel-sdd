@@ -55,7 +55,8 @@ Every AC maps to a concrete OpenAPI response code and the RFC 9457 `Problem` sch
 - SSE channel: strictly in-order per audit (NFR-A2), immediate flush per event (NFR-P1, no batching), per-audit scope only (NFR-S3), buffered replay then `AUDIT_COMPLETED` + close for already-finished audits, `Last-Event-ID` resync (D-6: event `id` = SSE `id:` field).
 - LLM/provider failures are **never** HTTP errors — they surface as `TOOL_EXECUTION` (failed/degraded) or terminal `AUDIT_COMPLETED` (status failed) events (NFR-A3, openapi stream description).
 - Audit lifecycle enum: `queued | running | completed | failed` (D-4). In-memory Maps only (ASD §8.1); server restart loses everything (documented limitation).
-- No-auth PoC (NFR-S1); `X-API-Key` securityScheme reserved but not enforced.
+- No-auth applies only to the loopback-only PoC. ADR-008 supersedes this plan's earlier implicit network assumption: bind to loopback, restrict local paths to configured allowed roots, and do not treat the optional `X-API-Key` placeholder as authentication.
+- Local LLM processing is the default; external LLM access requires server-operator opt-in and follows the redaction/fail-closed policy in ADR-008.
 - Double-connect to the same stream is allowed — the hub fans out per connection (prior plan §3.2).
 
 ### 3.2 Edge Cases (by category)
@@ -67,7 +68,7 @@ Every AC maps to a concrete OpenAPI response code and the RFC 9457 `Problem` sch
 - `ruleSets` with all-false or unknown keys → 400 (`additionalProperties: false`; at least one `true`).
 - `severityThreshold` outside `LOW|MEDIUM|HIGH|CRITICAL` → 400 with allowed enum in `detail`/`errors[]`.
 - Body larger than the configured limit → 413 (boundary: exactly at limit is accepted).
-- `localPath` exists check: race between check and agent read is accepted (PoC; agent re-checks and surfaces `TOOL_EXECUTION` failure).
+- `localPath` must exist and resolve within a configured allowed root. Revalidate canonical paths during repository traversal; reject symlink escapes (ADR-008). The remaining TOCTOU policy is defined in `implementation-plan-p0-security-boundaries.md`.
 
 **State transitions:**
 - `GET /audits/{id}` mid-run → `status: running` + partial `findings` (spec: "findings accumulated so far").
@@ -78,7 +79,7 @@ Every AC maps to a concrete OpenAPI response code and the RFC 9457 `Problem` sch
 
 **Concurrency:** per-audit monotonic sequence assigned inside the hub (single-process Node, no locking needed). Multiple SSE connections to one audit share the same buffer; each gets its own cursor.
 
-**Permissions:** none enforced (NFR-S1). Stream exposes no cross-audit data (NFR-S3) — auditId in every event envelope must match the path parameter.
+**Permissions:** no user authentication is enforced in this PoC, which is restricted to loopback (ADR-008). Local repository access is separately constrained by allowed roots. The stream exposes no cross-audit data (NFR-S3) — auditId in every event envelope must match the path parameter.
 
 **Integrations:** Agent runner is decoupled from HTTP (ASD §6.1); slow LLM calls never block the channel (CONCERN-002 tactic).
 
@@ -146,7 +147,8 @@ None. All work item asks align with ASD §4 (C-02, C-03, C-04, C-05), §5, §6, 
 - **NFR-P1:** SSE transport latency < 500ms — flush every event immediately; never batch; hub decoupled from agent task.
 - **NFR-A2:** in-order per-audit delivery — monotonic sequence per audit; resync via `Last-Event-ID`.
 - **NFR-A3:** provider resilience — degradation modeled as events, never transport errors.
-- **NFR-S1:** no-auth; optional simulated `X-API-Key` header check only.
+- **NFR-S1/S4:** no-auth only on loopback; `X-API-Key` is not enforced and is not an access-control mechanism (ADR-008).
+- **NFR-S5/S6/S7:** local paths use canonicalized allowed roots; external LLM egress is local-only by default and requires operator opt-in; secret detection/redaction fails closed (ADR-008).
 - **NFR-S3:** stream is per-audit; no cross-audit data leakage.
 - **NFR-O1/O3:** one-command bootstrap (`turbo dev`); quality gates lint/typecheck/test enforced.
 
@@ -229,7 +231,7 @@ pnpm --filter @sentinel/contracts validate   # contract gate stays green (C-04)
 **Acceptance Criteria:**
 | # | Criterion | Maps to |
 |---|---|---|
-| US1-AC1 | `apps/api` boots an Express server on `http://localhost:3000` and serves `/api/v1` | openapi `servers` |
+| US1-AC1 | `apps/api` boots on port 3000 bound only to loopback and serves `/api/v1`; a non-loopback listener is prohibited without a separately approved auth design | openapi `servers`, ADR-008 |
 | US1-AC2 | All domain types/DTOs referenced by the app are imported from `@sentinel/contracts` — zero hand-written duplicates of contract types | ASD §6.3.4, §8.3 |
 | US1-AC3 | `turbo run lint/typecheck/test` include `apps/api` and pass | ASD §9.2 |
 | US1-AC4 | Coverage gate (> 80%) enforced by Vitest config | ASD §10.3, §4.2 |
@@ -254,7 +256,7 @@ pnpm --filter @sentinel/contracts validate   # contract gate stays green (C-04)
 |---|---|---|
 | US2-AC1 | Valid `AuditConfig` → **201** with body `{ auditId, status }` where `auditId` matches `^aud_[0-9a-zA-Z]+$` and `status: 'queued'`; audit persisted in memory and (from US-4) execution spawned | `POST /audits` → `201 AuditCreated` |
 | US2-AC2 | Malformed body, missing/ambiguous repo source, zero enabled rule sets, or invalid `severityThreshold` → **400** `application/problem+json` with field-level `errors[]` | `400` → `$ref Problem` |
-| US2-AC3 | Nonexistent `localPath` rejected at request time (fail fast) → **400** Problem Details, never deferred to agent runtime | `400` description (fail fast) |
+| US2-AC3 | Nonexistent or out-of-allowlist `localPath` rejected before audit creation → **400** Problem Details; canonical path and symlink targets must remain under an allowed root | `400` description, ADR-008 |
 | US2-AC4 | Request body exceeding 1 MB → **413** `application/problem+json` (no half-parsed state) | `413` → `$ref Problem` |
 
 **Edge cases addressed:** §3.2 inputs (all rows). · **Depends on:** US-1.
@@ -312,9 +314,9 @@ pnpm --filter @sentinel/contracts validate   # contract gate stays green (C-04)
 **Goal:** Replace the fixture stub with the real Audit Runner behind the LLM abstraction (ASD §6.1, §5.6), completing the vertical slice `POST → stream → completed audit with findings`.
 
 **Tasks:**
-- **Task 5.1** — `AuditRunner` real implementation: clone/read repo (Git URL or local path), inspect snippets via LLM abstraction layer (free-tier provider, Ollama fallback per CONCERN-004). **Effort:** L · **AC:** US5-AC1
+- **Task 5.1** — `AuditRunner` real implementation: clone/read repo (Git URL or allowlisted local path), inspect sanitized snippets via LLM abstraction. Local Ollama is the default; a remote provider is available only with operator opt-in (ADR-008). **Effort:** L · **AC:** US5-AC1
 - **Task 5.2** — Emission discipline: every thought/tool/finding/completion event passes the hub's Ajv gate; `VULNERABILITY_FOUND` always carries Before/After snippets (ASD §5.5); `AUDIT_COMPLETED(failed)` on any engine crash (no orphan streams). **Effort:** M · **AC:** US5-AC2, US5-AC3
-- **Task 5.3** — Degradation path: provider throttle → `TOOL_EXECUTION(degraded)` + Ollama fallback; both providers down → audit fails via terminal event, never an HTTP error (NFR-A3). **Effort:** M · **AC:** US5-AC3
+- **Task 5.3** — Degradation path: an opted-in remote provider throttle/failure → `TOOL_EXECUTION(degraded)` + local Ollama fallback; local-only mode never attempts remote egress; all permitted providers down → terminal failed event, never an HTTP error (NFR-A3, ADR-008). **Effort:** M · **AC:** US5-AC3
 - **Task 5.4** — Integration tests with stub LLM adapter (ASD §10.3): full-audit sequence asserted against the events schema; findings surfaced in `GET /audits/{id}` after completion. **Effort:** M · **AC:** US5-AC1..3
 
 **Acceptance Criteria:**
@@ -322,7 +324,7 @@ pnpm --filter @sentinel/contracts validate   # contract gate stays green (C-04)
 |---|---|---|
 | US5-AC1 | Full flow: `POST /audits` 201 → stream events → `GET /audits/{id}` 200 with `status: 'completed'`, findings + `summary` present | openapi POST/GET 200/201 |
 | US5-AC2 | Every emitted event validates against `events-schema.json`; ids monotonic per audit | events-schema (normative) |
-| US5-AC3 | LLM throttling/unavailability → `TOOL_EXECUTION` degraded/failed events + Ollama fallback; engine crash → terminal failed `AUDIT_COMPLETED`; stream never left open, never errors at transport level | NFR-A3, CONCERN-004, D-6 stream description |
+| US5-AC3 | Enabled-provider throttling/unavailability → sanitized `TOOL_EXECUTION` degraded/failed events; only an opted-in remote provider may fall back to local Ollama; engine crash → terminal failed `AUDIT_COMPLETED`; stream never left open | NFR-A3, ADR-008, D-6 stream description |
 
 **Edge cases addressed:** §3.2 integrations; §3.3 rows 4–5. · **Depends on:** US-4. (US-5 may be scheduled as its own follow-up milestone if the 15-day window demands; US-1–4 deliver the full contract surface.)
 
@@ -344,7 +346,7 @@ Estimated total: ~5–7 developer-days (US-5 excluded: ~4–5).
 - [ ] Coverage > 80% on `apps/api` logic (Vitest, §10.3; C §4.2)
 - [ ] Required test types present — unit (validators, store, hub) + integration (supertest REST, in-process SSE reads); runner unit-tested with stub LLM adapter (§10.3)
 - [ ] Architecture principles followed — spec-first (§5.1), contracts-only types (§6.3.4), in-memory only (§8.1), no deviations from §5 patterns
-- [ ] NFRs validated: SSE flush-per-event (P1), in-order + resync (A2), degradation-as-event (A3), no-auth (S1), per-audit stream scope (S3)
+- [ ] NFRs validated: SSE flush-per-event (P1), in-order + resync (A2), degradation-as-event (A3), loopback-only no-auth boundary (S1/S4), per-audit scope (S3), allowed roots and local-first/redacted LLM egress (S5-S7, ADR-008)
 
 **Standard Checklist:**
 - [ ] All US-1..US-5 acceptance criteria validated (201/400/404/413 paths covered by tests)
@@ -360,7 +362,7 @@ Estimated total: ~5–7 developer-days (US-5 excluded: ~4–5).
 - **Technical risks:** Express + SSE needs manual response handling (`res.write`, heartbeat comments to defeat proxy buffering); mitigated by a thin hub with explicit flush and tests reading raw chunks. OpenAPI 3.1 SSE typing is prose-backed — `events-schema.json` remains normative (accepted in prior plan §9).
 - **Dependencies:** none blocking; `@sentinel/contracts` already green.
 - **Performance:** NFR-P1 (< 500ms) — no batching, no middleware that buffers the stream response; hub decouples agent latency from the channel (CONCERN-002 tactic).
-- **Security:** no-auth PoC (NFR-S1); `localPath` handling must not leak filesystem details beyond Problem `detail` (confidential source, NFR-S2); stream scoped per audit (NFR-S3); tool `input` payloads sanitized (events-schema note — no secrets/full file dumps).
+- **Security:** loopback-only no-auth PoC; local paths constrained to configured roots; LLM egress local-only by default; secret detection/redaction fails closed (ADR-008); `localPath` errors must not leak filesystem details; stream scoped per audit (NFR-S3); tool inputs and logs contain no secrets or full file dumps.
 - **Migration/backward compatibility:** none — greenfield; in-memory data is session-scoped by design (ASD §8.1).
 
 ## 10. Open Questions
@@ -368,7 +370,7 @@ Estimated total: ~5–7 developer-days (US-5 excluded: ~4–5).
 | # | Question | Owner | Blocking? |
 |---|---|---|---|
 | Q-1 | Promote Ajv validators into `@sentinel/contracts` (D-API-1) or keep local adapter in `apps/api`? | Backend + contracts owner | No (ADR during US-2) |
-| Q-2 | Which free-tier LLM provider is primary for US-5 (drives the abstraction layer's first adapter)? | Product / Lead Dev | Only for US-5 |
+| Q-2 | Which remote LLM provider may be configured when operator opt-in is enabled, and what adapter/auth format does it require? | Product / Lead Dev | Only when external access is enabled (ADR-008) |
 | Q-3 | Event buffer cap value (D-API-4) — 1000 events sufficient for PoC audits? | Backend | No |
 
 ## 11. ASD Friction & ADR Candidates

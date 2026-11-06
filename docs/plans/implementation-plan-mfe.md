@@ -58,7 +58,7 @@ Every AC maps to an openapi response, an `events-schema.json` event type, or an 
 - **Degradation UX (NFR-A3):** `TOOL_EXECUTION { status: 'degraded' }` renders a visible, non-fatal degradation indicator (throttle/fallback); `status: 'failed'` + terminal `AUDIT_COMPLETED { status: 'failed' }` render a terminal failure state. Provider failure is **never** shown as a transport/HTTP error.
 - **Findings completeness (§5.5):** every `VULNERABILITY_FOUND` carries `beforeSnippet`/`afterSnippet` — the viewer renders side-by-side diffs; missing snippets would indicate a contract violation (surface as an anomaly, not a crash).
 - **State ownership:** TanStack Query for REST server-state (`Audit`, POST mutation); the SSE hook owns the streaming event list (streaming state is **not** query cache — ADR-006/007 territory).
-- **No-auth PoC (NFR-S1)**; dev ports: shell 5173, config 5174, metrics 5175 (assigned in this plan, D-WEB-2); API at `http://localhost:3000` (openapi `servers`).
+- **No-auth loopback-only PoC (NFR-S1/S4, ADR-008)**; dev ports: shell 5173, config 5174, metrics 5175 (assigned in this plan, D-WEB-2); API at `http://localhost:3000` (openapi `servers`). Do not configure a remote API URL without a separately approved authentication design.
 - Testing per ASD §10: Vitest + RTL + MSW (>80% coverage on hooks/components), 1 Playwright E2E suite (shell→config→metrics full flow), MSW fixtures including the LLM-degradation sequence (`stub-runner.ts` `failureSequence` parity).
 
 ### 3.2 Edge Cases (by category)
@@ -365,7 +365,7 @@ Estimated total: ~7–9 developer-days (US-3 is the critical path).
 - **Technical risks:** `@originjs/vite-plugin-federation` shared-singleton pitfalls (duplicate React copies → hooks break); mitigated by strict shared-singleton config + a federation smoke test in US-1. `EventSource` cross-origin needs explicit CORS on the API dev server (backend already plain Express — may need `cors` allowlist for 5173–5175; flagged as an `apps/api` follow-up, not a frontend workaround).
 - **Dependencies:** none blocking — backend shipped; contracts green; MSW handlers exist.
 - **Performance:** the hook must not re-render the whole timeline per event; recommend keyed list + stable row components; measure before optimizing (NFR-P1).
-- **Security:** snippets are confidential (NFR-S2) — no third-party error tracking on event payloads; Markdown export stays client-side (no new data flows); no-auth (S1).
+- **Security:** snippets are confidential (NFR-S2); the API is loopback-only without auth (ADR-008); external LLM egress is operator opt-in and sanitized server-side; no third-party error tracking on event payloads; Markdown export stays client-side (no new data flows).
 - **Migration/backward compatibility:** greenfield; the earlier `apps/web` naming is superseded (see §3.5) — no migration needed.
 
 ## 10. Open Questions

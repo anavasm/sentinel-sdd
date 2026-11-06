@@ -20,7 +20,7 @@ graph TD
     end
 
     subgraph Backend ["Node.js + Express Service"]
-        API["Express REST API"]
+        API["Express REST API (loopback only)"]
         SSEHub["SSE Event Stream Hub"]
         AgentEngine["AI Agent Engine / Runner"]
         
@@ -33,6 +33,11 @@ graph TD
     MetricsMFE -->|GET /api/v1/audits/:id/stream| SSEHub
 
 ```
+
+### Security and Privacy Boundaries
+
+The unauthenticated PoC API is restricted to loopback and must not be exposed to a LAN or shared environment. Local repository audits are limited to canonicalized roots configured by `SENTINEL_ALLOWED_REPO_ROOTS`; path and symlink escapes are rejected. Local Ollama is the default LLM. External providers require explicit server-operator opt-in, and known sensitive files/secrets are excluded or redacted before any provider call. See [ADR-008](adr/ADR-008-local-only-repository-and-llm-boundaries.md) and the [ASD security requirements](asd/03-nfr.md).
+
 ## 2. Microfrontend (MFE) Strategy
 
 The frontend uses Vite + @originjs/vite-plugin-federation to enable runtime Module Federation.

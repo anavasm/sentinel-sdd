@@ -4,12 +4,12 @@
 - **Date:** 2026-09-29
 - **Decides:** NFR-A3 (LLM provider resilience → graceful degradation, surfaced as stream events) and the mitigation of CONCERN-004 (free-tier LLM / Ollama rate limits & availability)
 - **Sources:** `docs/asd/03-nfr.md` (NFR-A3), `docs/asd/ASD.md` §risk register (CONCERN-004), `docs/plans/implementation-plan-apps-api.md` §US-4 (US4-AC6)
-- **Supersedes:** None
-- **Related:** ADR-001 (SSE framing), ADR-003 (hub as validator of record)
+- **Supersedes:** Provider-selection/default behavior is superseded by ADR-008; degradation-as-event semantics remain in force.
+- **Related:** ADR-001 (SSE framing), ADR-003 (hub as validator of record), ADR-008 (local-first provider and egress policy)
 
 ## Context
 
-The audit engine depends on an external LLM provider to inspect code snippets. The project explicitly targets **free-tier providers** (rate-limited, throttled) with a **local Ollama fallback** (can be down, slow, or returning malformed output). ASD risk CONCERN-004 and NFR-A3 require that provider throttling or unavailability must **not crash the engine and must not surface as an HTTP error** — the user is watching a live stream, and the stream itself must communicate the degradation.
+The audit engine depends on an LLM provider to inspect code snippets. This ADR originally assumed a **free-tier external provider as primary** with **local Ollama fallback**. ADR-008 supersedes that provider ordering: local Ollama is now the default, and external providers are disabled unless the server operator explicitly opts in. The failure behavior in this ADR continues to apply to whichever provider is enabled: provider unavailability must **not crash the engine and must not surface as an HTTP error** — the stream itself communicates the degradation.
 
 The alternative designs considered:
 
@@ -19,10 +19,10 @@ The alternative designs considered:
 
 ## Decision
 
-Every LLM provider problem is **classified and emitted as a contract event on the stream**; it never becomes an HTTP error and never leaves the stream open:
+Every enabled LLM provider problem is **classified and emitted as a contract event on the stream**; it never becomes an HTTP error and never leaves the stream open. Provider selection and permission to send snippets externally are governed by ADR-008:
 
-- **Primary provider throttles/fails → degrade to Ollama fallback:** a `TOOL_EXECUTION` event with `status: 'degraded'` naming the provider used and the primary failure detail; the audit continues with the fallback's finding.
-- **Both providers down:** a `TOOL_EXECUTION` event with `status: 'failed'`, followed by a terminal `AUDIT_COMPLETED` with `payload.status: 'failed'` — the stream closes cleanly.
+- **An enabled remote provider throttles/fails → use local Ollama fallback:** a `TOOL_EXECUTION` event with `status: 'degraded'` naming the provider used and a sanitized failure detail; the audit continues with the fallback's finding.
+- **All providers allowed by the selected mode are unavailable:** a `TOOL_EXECUTION` event with `status: 'failed'`, followed by a terminal `AUDIT_COMPLETED` with `payload.status: 'failed'` — the stream closes cleanly. In local-only mode no remote provider is attempted as a fallback.
 - **Any unexpected engine crash** is caught by a top-level guard and also ends in a terminal `AUDIT_COMPLETED { status: 'failed' }`, so *no stream is ever left open* (US4-AC6).
 
 Provider errors are **expected failures modelled as explicit results** (`LlmInspection` union: `succeeded | degraded | unavailable`), not thrown exceptions crossing module boundaries. `LlmProviderError` is confined to adapter internals and mapped to those results.
@@ -34,7 +34,7 @@ Provider errors are **expected failures modelled as explicit results** (`LlmInsp
 | Failure classification (`throttled \| unavailable \| invalid-response`) | `src/agent/llm.ts` — `LlmFailureKind`, `LlmProviderError` (429 → `throttled`, other non-2xx → `unavailable`) |
 | Result-union contract for inspections | `src/agent/llm.ts` — `LlmInspection` (`succeeded` / `degraded` / `unavailable`) |
 | Primary → Ollama fallback with degradation detail | `src/agent/llm.ts` — `OllamaFallbackLlmClient.inspectSnippet()` (returns `{ ...fallbackResult, status: 'degraded', detail: primaryResult.detail }`) |
-| Production default chain (free-tier primary + local Ollama) | `src/agent/llm.ts` — `createDefaultLlmClient()` (`SENTINEL_LLM_ENDPOINT` / `SENTINEL_LLM_MODEL` env overrides) |
+| Previous production default chain (superseded by ADR-008) | `src/agent/llm.ts` — current implementation still requires the local-first/opt-in policy from ADR-008 |
 | Degraded outcome → `TOOL_EXECUTION { status: 'degraded' }` event, analysis continues | `src/agent/runner.ts` — `SentinelAuditRunner.runAuditSteps()` (the `inspection.status === 'degraded'` branch) |
 | Both providers down → `TOOL_EXECUTION { status: 'failed' }` + terminal `AUDIT_COMPLETED { status: 'failed' }` | `src/agent/runner.ts` — `runAuditSteps()` (the `unavailable` branch) and `emitTerminalFailure()` |
 | Top-level crash guard → terminal failed event | `src/agent/runner.ts` — `execute()` (`catch` → `console.error` + `emitTerminalFailure`) |
@@ -58,4 +58,4 @@ Provider errors are **expected failures modelled as explicit results** (`LlmInsp
 
 ## Status
 
-**Accepted** (2026-09-29). Implemented in US-5; covered by `apps/api/tests/agent.test.ts` (degradation and both-providers-down scenarios).
+**Accepted** (2026-09-29); provider default superseded by ADR-008 (2026-11-05). Degradation-as-event behavior is implemented in US-5 and covered by `apps/api/tests/agent.test.ts`; provider-selection hardening is tracked in `docs/plans/implementation-plan-p0-security-boundaries.md`.

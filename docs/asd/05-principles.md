@@ -24,4 +24,4 @@ Every `VULNERABILITY_FOUND` event carries enough context (location, severity, Be
 
 ## 5.6 Honest Dependency Boundaries
 
-External LLM providers are behind an internal abstraction layer with a local Ollama fallback; the system degrades gracefully rather than failing when a free-tier provider throttles (CONCERN-004, `03-nfr.md` §3.2 NFR-A3).
+Local Ollama is the default LLM provider. External providers are behind the internal abstraction layer and remain disabled unless the server operator opts in (ADR-008). When an external provider is enabled, provider failures degrade gracefully through contract events rather than failing at the HTTP layer (CONCERN-004, `03-nfr.md` §3.2 NFR-A3).

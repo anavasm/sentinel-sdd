@@ -15,7 +15,7 @@ graph TD
     end
 
     subgraph Backend ["Node.js + Express Service"]
-        API["Express REST API"]
+        API["Express REST API (loopback only)"]
         SSEHub["SSE Event Stream Hub"]
         AgentEngine["AI Agent Engine / Runner"]
         API --> SSEHub
@@ -24,7 +24,7 @@ graph TD
     end
 
     subgraph External ["External Dependencies"]
-        LLM["LLM Provider<br/>(free-tier API or local Ollama)"]
+        LLM["LLM Provider<br/>(local by default; external opt-in)"]
         Repo["Git Repository<br/>(URL or local path)"]
     end
 
@@ -44,6 +44,7 @@ graph TD
 | Express API | REST entry point (`/api/v1`), audit lifecycle management | Validates against `specs/openapi.yaml` |
 | SSE Event Hub | Per-audit ordered event channel; decouples Agent Engine from HTTP connections | Validates events against `specs/events-schema.json` |
 | Agent Engine (Runner) | Orchestrates audit: clone/read repo, inspect snippets via LLM, emit typed events | Only component allowed to call the LLM |
+| Repository Reader | Clones remote Git repositories or reads local repositories beneath configured allowed roots | Local paths are canonicalized; symlink/path escapes are rejected |
 
 ## 6.2 Architecture Patterns
 
@@ -75,7 +76,7 @@ graph TD
 | Charts (`mfe-metrics`) | Recharts |
 | Backend runtime | Node.js ≥ 20 + Express + TypeScript |
 | Real-time channel | Server-Sent Events (native HTTP streaming) |
-| LLM access | Free-tier LLM APIs and/or local Ollama, behind an internal abstraction layer |
+| LLM access | Local Ollama by default; external provider behind the abstraction layer only with explicit server-operator opt-in |
 | Monorepo tooling | pnpm Workspaces + Turborepo |
 | Testing | Vitest, React Testing Library, MSW, Playwright (see `10-testing.md`) |
 
@@ -96,8 +97,15 @@ In-memory only for the MVP: audit definitions, live event buffers, and final res
 |---|---|---|---|---|
 | `mfe-config` → API | Outbound | REST (`POST /api/v1/audits`) | `specs/openapi.yaml` | MSW mocks for dev/tests |
 | `mfe-metrics` → API | Inbound | SSE (`GET /api/v1/audits/:id/stream`) | `specs/events-schema.json` | `EventSource` auto-retry; in-order per audit |
-| Agent Engine → LLM provider | Outbound | HTTP (free-tier API) or local HTTP (Ollama) | Internal abstraction layer | Graceful degradation + Ollama fallback (CONCERN-004) |
-| Agent Engine → Git repo | Outbound | Git clone (URL) / filesystem (local path) | n/a | Local test repo as fallback target |
+| Agent Engine → LLM provider | Outbound | Local HTTP by default; external HTTP only with operator opt-in | Internal abstraction layer | Secret filtering/redaction before egress; graceful degradation |
+| Agent Engine → Git repo | Outbound | Git clone (URL) / filesystem (local path) | n/a | Local paths constrained to canonicalized allowed roots |
+
+### 6.3.6 Security Boundaries
+
+- The unauthenticated PoC API binds only to loopback. A non-loopback deployment is out of scope until authentication and authorization are designed and implemented. CORS is browser policy, not an access-control boundary.
+- Local filesystem audits require `SENTINEL_ALLOWED_REPO_ROOTS`. An unset or empty value disables local-path audits. Both configured roots and requested paths are canonicalized; a resolved path or traversed symlink outside every allowed root is rejected before audit creation.
+- The Agent Engine is the only component allowed to send code to an LLM. Local Ollama is the default. Any non-loopback LLM endpoint is external and requires `SENTINEL_ALLOW_EXTERNAL_LLM=true` in server configuration.
+- Known sensitive files are excluded and detected secrets are redacted before a snippet is sent to any provider. If detection or redaction fails, that snippet is not sent. Sanitized events and logs must not contain secret values. Detection is best-effort and must not be presented as a guarantee that all secrets are discoverable.
 
 ## 6.4 Real-Time Communication Flow
 

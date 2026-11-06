@@ -26,12 +26,12 @@ This document is structured as a folder of linked Markdown files. Load individua
 |---|---------|--------|---------|
 | 1 | [Context](./01-context.md) | Done | Unified AI command center for autonomous code audits; client is internal Eng & Cybersecurity Direction; PoC 15-day MVP |
 | 2 | [Functional Overview](./02-functional-overview.md) | Done | 3 MVP modules: `mfe-config`, `mfe-metrics` (SSE live console + dashboard), Agent Engine; spec-first contracts in `/specs` |
-| 3 | [Non-Functional Requirements](./03-nfr.md) | Done | SSE transport latency < 500ms (KPI clarified); coverage > 80% (Vitest/RTL); 1 Playwright E2E suite; no-auth PoC with simulated API key |
-| 4 | [Constraints](./04-constraints.md) | Done | Mandatory MFE (React+Vite+Module Federation); SSE for streaming; $0 budget (free-tier LLM/Ollama); 15-day MVP; in-memory persistence |
-| 5 | [Principles](./05-principles.md) | Done | Spec-first, TS everywhere, in-memory simplicity, streaming-first UX, free-tier pragmatism |
-| 6 | [Software Architecture](./06-software-architecture.md) | Done | TypeScript monorepo (pnpm+Turborepo); MFE via Module Federation; Express backend with Agent Engine + SSE Hub; 4 SSE event types |
-| 7 | [Infrastructure Architecture](./07-infrastructure.md) | Done | Single local dev environment; all services via pnpm/Turborepo; optional Docker; no cloud (budget $0) |
-| 8 | [Data Architecture](./08-data-architecture.md) | Done | In-memory persistence only (Maps in Express); audit results ephemeral; Markdown export as durable artifact |
+| 3 | [Non-Functional Requirements](./03-nfr.md) | Done | SSE transport latency < 500ms; quality targets; unauthenticated API restricted to loopback; allowlisted local repositories; local-first LLM egress with operator opt-in and secret handling |
+| 4 | [Constraints](./04-constraints.md) | Done | Mandatory MFE; SSE; $0 budget; 15-day MVP; in-memory persistence; loopback-only API and controlled repository/LLM boundaries |
+| 5 | [Principles](./05-principles.md) | Done | Spec-first, TS everywhere, in-memory simplicity, streaming-first UX, local-first LLM with operator-controlled external access |
+| 6 | [Software Architecture](./06-software-architecture.md) | Done | TypeScript monorepo; federated MFEs; Express Agent Engine + SSE Hub; explicit local filesystem and LLM egress boundaries |
+| 7 | [Infrastructure Architecture](./07-infrastructure.md) | Done | Local dev environment; loopback-only API; allowed repository roots; operator-controlled external LLM access |
+| 8 | [Data Architecture](./08-data-architecture.md) | Done | In-memory audit state; confidential source handling; local-first analysis and secret redaction before LLM egress |
 | 9 | [DevOps (CI/CD)](./09-devops.md) | Done | Simplified Gitflow (feature → main); local-first pipeline (lint, typecheck, test, build) runnable in CI later |
 | 10 | [Testing Principles](./10-testing.md) | Done | Testing Trophy: MSW for API/SSE mocking, Vitest+RTL > 80%, Playwright E2E across full MFE flow |
 | 11 | [Operation and Support](./11-operations-support.md) | Optional / N/A | Internal PoC, local execution, no production support model in scope |
@@ -55,8 +55,8 @@ Issues identified during Project Brief validation, with their resolution status.
 |----|---------|------|---------|--------|
 | CONCERN-001 | PB defined no backend stack for the Agent Executor | Tech stack gap | §6, §4 | **Resolved** — Node.js ≥ 20 + Express + TypeScript (same language as MFEs, native SSE, shared types) |
 | CONCERN-002 | KPI "< 500ms" ambiguous vs. LLM inference latency | NFR-Constraint conflict | §3, §6 | **Resolved** — applies to SSE transport latency (event emission → UI render); LLM inference is async and does not penalize the event channel |
-| CONCERN-003 | No persistence/auth strategy for MVP | Tech stack gap | §8, §3.4 | **Resolved** — in-memory Maps in Express for MVP; no-auth PoC with simulated API key header; $0 budget honored |
-| CONCERN-004 | Free-tier LLM / Ollama rate limits & availability | Integration risk | §6, §7 | **Acknowledged** — mitigation: LLM provider behind an abstraction layer; local Ollama fallback; agent degrades gracefully if provider throttles |
+| CONCERN-003 | No persistence/auth strategy for MVP | Tech stack gap | §8, §3.4, §7 | **Resolved** — in-memory Maps; unauthenticated API is restricted to loopback; any shared deployment requires a separate auth design |
+| CONCERN-004 | Enabled LLM provider unavailability or rate limits | Integration risk | §6, §7 | **Acknowledged** — local Ollama is the default; external providers require operator opt-in; enabled-provider failures degrade through SSE events (ADR-002/008) |
 
 **Concern types:** NFR-Constraint conflict · Tech stack gap · Integration risk · Assumption risk · Incomplete tactic coverage · Environment mismatch · Team-stack mismatch
 

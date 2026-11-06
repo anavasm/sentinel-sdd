@@ -59,7 +59,7 @@ Client-side alternatives considered:
 - **Gap window after buffer eviction:** if a client disconnects long enough for the server to evict past its cursor (1000-event cap, ADR-004), the server resumes from buffer end; the UI must show the gap banner rather than fake continuity — accepted for the PoC.
 - **Dedup requires id discipline:** the strategy assumes the server's monotonic ids (D-6). Any future multi-node backend sharding the sequence would need a redesign (single hub, single process today — ADR-003/004).
 - **No cross-tab sharing:** two tabs on the same audit each hold their own EventSource and reducer; harmless (the hub fans out per connection) but doubles connections — acceptable at PoC scale.
-- **Native `EventSource` cannot send custom headers on the *initial* request**, so first-connect customization (e.g., a future API-key header, NFR-S1) would force the `fetch`-based parser. Reserved as an evolution path; not needed for the no-auth PoC.
+- **Native `EventSource` cannot send custom headers on the *initial* request**, so future authentication for a shared/remote deployment may require a `fetch`-based parser or another approved mechanism. Such deployment is outside the current loopback-only policy (ADR-008); an `X-API-Key` placeholder is not authentication.
 
 ## Status
 

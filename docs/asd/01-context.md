@@ -40,11 +40,11 @@ Engineering teams spend significant time manually reviewing Pull Requests or tri
 |---|---|
 | Project type | **Greenfield** |
 | Engagement | Internal PoC / MVP — **15-day delivery** |
-| Budget | **$0** (free-tier LLM APIs, local Ollama models, free internal CLI tools) |
+| Budget | **$0** (local Ollama models, or free-tier LLM APIs only when explicitly enabled by the server operator; free internal CLI tools) |
 | Success criteria | SDD acceptance artifacts validated before application code (see `02-functional-overview.md` §2.4) |
 
 ## 1.3 IT Strategy Context
 
 - **Platform mandate:** TypeScript end-to-end monorepo; no cloud dependency (budget $0).
-- **AI strategy:** LLM access via free-tier APIs or local Ollama models — no paid inference. See `04-constraints.md` §4.3.
+- **AI strategy:** local Ollama by default; free-tier APIs may be enabled explicitly by the server operator. No paid inference. See `03-nfr.md` §3.4 and ADR-008.
 - **Team context:** Product Owner / Lead Developer driving delivery; distinct frontend teams own distinct MFEs (motivates the MFE constraint — see `04-constraints.md` §4.1).

@@ -18,7 +18,7 @@
 |---|---|---|---|
 | NFR-A1 | Availability | Local dev execution; no SLO | PoC runs on developer machine; no uptime SLO |
 | NFR-A2 | Audit session reliability | Events delivered in-order per audit | SSE reconnection (browser `EventSource` auto-retry) resyncs to the live stream; no replay guarantee across server restarts (in-memory — see `08-data-architecture.md`) |
-| NFR-A3 | LLM provider resilience | Graceful degradation | Free-tier rate limits/Ollama unavailability must not crash the engine; surfaced as events in the stream (see CONCERN-004 in `ASD.md`) |
+| NFR-A3 | LLM provider resilience | Graceful degradation | Unavailability of an enabled provider must not crash the engine; surface it as stream events. Provider selection and external egress are governed by NFR-S6/ADR-008. |
 
 ## 3.3 Operational Requirements
 
@@ -32,6 +32,10 @@
 
 | ID | Requirement | Target | Notes |
 |---|---|---|---|
-| NFR-S1 | Auth model (MVP) | **No-auth PoC**, optionally a simulated API key via HTTP header | Confirmed by user; real auth out of scope |
-| NFR-S2 | Data classification | Source code of audited repos is **confidential** | Code snippets sent to LLM providers must be limited to what the rule set requires; local Ollama available when external transmission is not acceptable |
+| NFR-S1 | Auth model (MVP) | **No-auth PoC accessible only through loopback** | No non-loopback listener is permitted. Any shared or remote deployment requires a separate authentication and authorization design. |
+| NFR-S2 | Data classification | Source code of audited repos is **confidential** | Only the minimum required snippets may reach an LLM. Local LLM processing is the default; external processing requires explicit server-operator opt-in. |
 | NFR-S3 | SSE endpoint scope | Per-audit stream only | `GET /api/v1/audits/:id/stream` exposes no cross-audit data |
+| NFR-S4 | API network boundary | Loopback-only listener | The unauthenticated API binds only to loopback addresses. CORS is not an authentication or network access control. |
+| NFR-S5 | Local repository authorization | Configured allowed roots | `SENTINEL_ALLOWED_REPO_ROOTS` defines local repository roots. Missing or empty configuration denies local-path audits. Canonical paths and symlink targets must remain inside an allowed root. |
+| NFR-S6 | LLM egress control | Local-only by default | External endpoints are used only when `SENTINEL_ALLOW_EXTERNAL_LLM=true` is set by the server operator. Non-loopback LLM endpoints are external. |
+| NFR-S7 | Sensitive-file and secret handling | Exclude, redact, fail closed | Exclude known sensitive files, redact detected secrets before any LLM request, and do not send a snippet if detection/redaction fails. Secret material must not appear in events or logs. |

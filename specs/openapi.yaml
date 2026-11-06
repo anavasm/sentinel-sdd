@@ -9,7 +9,7 @@
 #   D-2: RFC 9457 Problem Details for REST errors
 #   D-3: SSE endpoint responds 404 BEFORE establishing text/event-stream headers
 #   D-4: audit status enum: queued | running | completed | failed
-#   NFR-S1: no-auth PoC; X-API-Key securityScheme defined but not required
+#   NFR-S1/S4: no-auth PoC is loopback-only (ADR-008); X-API-Key placeholder is not authentication
 openapi: 3.1.0
 info:
   title: DevSecOps Sentinel AI API
@@ -27,7 +27,7 @@ tags:
   - name: audits
     description: Audit lifecycle (create, inspect, stream)
 security:
-  - {} # No-auth PoC (NFR-S1). X-API-Key available as opt-in below.
+  - {} # Anonymous access is permitted only on the loopback-only PoC listener (ADR-008).
 paths:
   /audits:
     post:
@@ -224,8 +224,10 @@ components:
       in: header
       name: X-API-Key
       description: >
-        Simulated key for the no-auth PoC (NFR-S1). Not required by default;
-        reserve for optional simulation at the API layer.
+        Reserved placeholder only; this header is not implemented or enforced
+        as authentication. The unauthenticated PoC API is restricted to
+        loopback (ADR-008). Any shared or remote deployment requires a
+        separately designed and implemented authentication mechanism.
   schemas:
     Severity:
       type: string
@@ -282,7 +284,11 @@ components:
         localPath:
           type: string
           minLength: 1
-          description: Absolute filesystem path of a local repository to audit.
+          description: >
+            Absolute filesystem path of a local repository to audit. The API
+            accepts it only when its canonical path is beneath a server-configured
+            allowed root (SENTINEL_ALLOWED_REPO_ROOTS); path or symlink escapes
+            are rejected (ADR-008).
           example: /Users/dev/projects/sample-repo
         ruleSets:
           $ref: '#/components/schemas/RuleSets'

@@ -83,7 +83,7 @@ From PB §5 (SDD Acceptance Criteria) and §3.C:
 - Single-audit PoC (NFR-P2); spec does not need batch endpoints. `POST` while another audit runs → accepted; no locking specified.
 
 **Permissions:**
-- No-auth PoC (NFR-S1); optionally reserve an `X-API-Key` header placeholder in securitySchemes (simulated key). **Decision: document `X-API-Key` as optional securityScheme, not required.**
+- No-auth PoC is restricted to loopback (ADR-008). The earlier optional `X-API-Key` placeholder is not implemented authentication and must not imply that remote access is protected.
 
 **Integrations:**
 - LLM provider failures are **not** REST errors — they surface as `TOOL_EXECUTION` failure events / degradation events on the stream (NFR-A3, CONCERN-004). Spec must not model provider errors as HTTP codes.
@@ -138,7 +138,7 @@ None. The work item *is* an ASD-mandated gate (C-04, C-08, §9.3); every design 
 ### NFR Constraints on This Feature
 - **NFR-P1:** SSE < 500ms latency — spec defines immediate-flush semantics per event (no batching); contract-level note.
 - **NFR-A2:** in-order delivery per audit — spec documents per-audit ordered channel guarantee.
-- **NFR-S1:** no-auth, optional simulated `X-API-Key`.
+- **NFR-S1:** no-auth only for the loopback PoC; the optional `X-API-Key` placeholder is not an access-control mechanism (ADR-008).
 - **NFR-S3:** stream is per-audit only, no cross-audit data — reflected in endpoint path scoping.
 - **NFR-O2:** spec-first contracts with shared TS types — the core deliverable of this milestone.
 
@@ -205,7 +205,7 @@ All new. Full endpoint/error matrix in Section 6, Task 2/3.
   - **`POST /api/v1/audits`** → `201` `AuditCreated { auditId, status }`; `400`/`422` Problem Details (body validation: repo source, rule sets, severity enum). Request body = `AuditConfig`.
   - **`GET /api/v1/audits/{auditId}`** → `200` `Audit` (status, config, findings array with Before/After snippets, severity, location); `404` Problem Details. Powers refactoring drawer + Markdown export source.
   - **`GET /api/v1/audits/{auditId}/stream`** → `200` `text/event-stream` (document SSE headers, per-event schema = envelope; `Last-Event-ID` resync note); `404` before stream establishment; note on in-order delivery + buffered-replay-then-live semantics for completed audits (NFR-A2, ASD §8.1).
-  - **Components:** `AuditConfig`, `Audit`, `AuditCreated`, `Finding`, `Severity` enum (`LOW|MEDIUM|HIGH|CRITICAL`), `AuditStatus` enum (`queued|running|completed|failed`), `Problem` (RFC 9457). Optional `ApiKeyAuth` securityScheme (`X-API-Key`, not required — NFR-S1).
+  - **Components:** `AuditConfig`, `Audit`, `AuditCreated`, `Finding`, `Severity` enum (`LOW|MEDIUM|HIGH|CRITICAL`), `AuditStatus` enum (`queued|running|completed|failed`), `Problem` (RFC 9457). The optional `ApiKeyAuth` placeholder is not implemented auth and does not permit non-loopback deployment (ADR-008).
 - **Notes:** OpenAPI 3.1 (D-1). Keep schemas strict where consumers depend on them; document SSE as an extension (`text/event-stream` response) rather than faking it as JSON.
 - **Effort:** M · **Depends on:** Task 1 · **AC:** AC-1 · **Edge cases:** 3.2 inputs/state/unhappy rows
 
@@ -273,7 +273,7 @@ Total: ~2–3 developer-days. Completing Tasks 1–5 satisfies the SDD gate (C-0
 - **Technical risks:** OpenAPI's native SSE support is limited — the stream endpoint is documented as `text/event-stream` with prose + envelope schema reference rather than a fully typed response; mitigated by `events-schema.json` being the normative event contract.
 - **Dependencies:** none blocking; all tooling free-tier.
 - **Performance:** contracts don't enforce latency, but spec prose must state immediate-flush semantics (NFR-P1) so implementers don't batch.
-- **Security:** `X-API-Key` optional placeholder only; no real auth (NFR-S1). Specs must not embed secrets or provider endpoints.
+- **Security:** the API is unauthenticated and therefore loopback-only (ADR-008). `X-API-Key` is a non-enforced placeholder, not a control. Specs must not embed secrets or provider credentials.
 - **Drift risk (post-milestone):** contract edits without regenerating types/mocks — mitigated by committed generated files + `validate` in the default pipeline.
 
 ## 10. Open Questions
