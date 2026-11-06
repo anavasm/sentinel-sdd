@@ -1,6 +1,6 @@
-import { createApp } from './app.js';
-import { resolvePort } from './lib/config.js';
-import { listenOnLoopback } from './lib/listener.js';
+import { createApp } from "./app.js";
+import { resolvePort } from "./lib/config.js";
+import { listenOnLoopback } from "./lib/listener.js";
 
 const app = createApp();
 const port = resolvePort();
@@ -15,12 +15,12 @@ function shutdown(signal: string): void {
   console.log(`[api] received ${signal}, shutting down`);
   server.close((error) => {
     if (error !== undefined) {
-      console.error('[api] error while closing server', error);
+      console.error("[api] error while closing server", error);
       process.exit(1);
     }
     process.exit(0);
   });
 }
 
-process.on('SIGINT', () => shutdown('SIGINT'));
-process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on("SIGINT", () => shutdown("SIGINT"));
+process.on("SIGTERM", () => shutdown("SIGTERM"));
