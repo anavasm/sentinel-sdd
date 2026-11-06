@@ -4,8 +4,8 @@
 
 ## 7.1 Environment Model
 
-| Environment | Type | Managed by | Purpose |
-|---|---|---|---|
+| Environment             | Type     | Managed by     | Purpose                            |
+| ----------------------- | -------- | -------------- | ---------------------------------- |
 | Local developer machine | Dev only | Each developer | Full stack execution (`turbo dev`) |
 
 Single environment. No UAT/Staging/Prod environments for the MVP — the deliverable is a locally-run PoC (constraint C-06/C-07; confirmed by user decision "in-memory MVP, no external DB").
@@ -42,14 +42,14 @@ graph LR
 
 ## 7.4 Environment Dependencies
 
-| Dependency | Required | Notes |
-|---|---|---|
-| Node.js ≥ 20 | Yes | Runtime for backend and all tooling |
-| pnpm + Turborepo | Yes | Workspace + task orchestration |
-| LLM access | Local Ollama by default | A remote provider is disabled unless the server operator sets `SENTINEL_ALLOW_EXTERNAL_LLM=true`; remote credentials must be supplied through server-side secret configuration and never logged. |
-| Local repository roots | Required for local-path audits | `SENTINEL_ALLOWED_REPO_ROOTS` is a comma-separated list. Unset/empty disables local-path audits; resolved paths and symlink targets must remain within a configured root. |
-| Git | Yes | Cloning audited repositories |
-| Docker | Optional | Only if the team prefers containerized local runs; not required by the architecture |
+| Dependency             | Required                       | Notes                                                                                                                                                                                            |
+| ---------------------- | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Node.js ≥ 20           | Yes                            | Runtime for backend and all tooling                                                                                                                                                              |
+| pnpm + Turborepo       | Yes                            | Workspace + task orchestration                                                                                                                                                                   |
+| LLM access             | Local Ollama by default        | A remote provider is disabled unless the server operator sets `SENTINEL_ALLOW_EXTERNAL_LLM=true`; remote credentials must be supplied through server-side secret configuration and never logged. |
+| Local repository roots | Required for local-path audits | `SENTINEL_ALLOWED_REPO_ROOTS` is a comma-separated list. Unset/empty disables local-path audits; resolved paths and symlink targets must remain within a configured root.                        |
+| Git                    | Yes                            | Cloning audited repositories                                                                                                                                                                     |
+| Docker                 | Optional                       | Only if the team prefers containerized local runs; not required by the architecture                                                                                                              |
 
 ## 7.5 Future Environments (out of MVP scope)
 

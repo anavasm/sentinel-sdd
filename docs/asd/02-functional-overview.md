@@ -32,15 +32,15 @@ The MVP consists of three functional modules:
 
 ## 2.2 Scope Boundaries
 
-| In Scope (MVP) | Out of Scope (MVP) |
-|---|---|
-| Git URL or local repo audits | Organization-wide repo scanning, CI-integrated audits |
-| OWASP Top 10 + code smells + test quality rules | Custom rule engines beyond the 3 rule categories |
-| Real-time SSE streaming | WebSockets, event replay beyond session lifetime |
-| AI-generated refactor snippets | Automatic PR creation / commit application |
-| Markdown report export | PDF/HTML exports, dashboards persistence |
-| In-memory audit session storage | Database persistence, audit history |
-| No-auth PoC restricted to loopback (NFR-S1/S4) | Shared/remote deployment, real authentication, multi-tenancy |
+| In Scope (MVP)                                  | Out of Scope (MVP)                                           |
+| ----------------------------------------------- | ------------------------------------------------------------ |
+| Git URL or local repo audits                    | Organization-wide repo scanning, CI-integrated audits        |
+| OWASP Top 10 + code smells + test quality rules | Custom rule engines beyond the 3 rule categories             |
+| Real-time SSE streaming                         | WebSockets, event replay beyond session lifetime             |
+| AI-generated refactor snippets                  | Automatic PR creation / commit application                   |
+| Markdown report export                          | PDF/HTML exports, dashboards persistence                     |
+| In-memory audit session storage                 | Database persistence, audit history                          |
+| No-auth PoC restricted to loopback (NFR-S1/S4)  | Shared/remote deployment, real authentication, multi-tenancy |
 
 The no-auth scope applies only to a developer-local PoC. The API must bind to loopback; a shared or remote deployment is prohibited until authentication and authorization are designed. Local repository paths and LLM egress follow the security boundaries in `03-nfr.md` and ADR-008.
 
@@ -61,8 +61,8 @@ Decoupled TypeScript monorepo:
 
 ## 2.5 Related Projects & Dependencies
 
-| Dependency | Type | Notes |
-|---|---|---|
+| Dependency                                                                          | Type             | Notes                                                                                                                 |
+| ----------------------------------------------------------------------------------- | ---------------- | --------------------------------------------------------------------------------------------------------------------- |
 | LLM provider (local Ollama by default; external provider only with operator opt-in) | External service | Behind an abstraction layer; remote egress is disabled unless explicitly enabled by the server operator (see ADR-008) |
-| Target Git repositories | External system | Audited via clone (Git URL) or direct filesystem access (local repo) |
-| npm/pnpm registry | Toolchain | Package distribution; no paid dependencies |
+| Target Git repositories                                                             | External system  | Audited via clone (Git URL) or direct filesystem access (local repo)                                                  |
+| npm/pnpm registry                                                                   | Toolchain        | Package distribution; no paid dependencies                                                                            |

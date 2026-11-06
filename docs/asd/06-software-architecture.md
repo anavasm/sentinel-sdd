@@ -36,25 +36,25 @@ graph TD
 
 **Role and scope of components:**
 
-| Component | Role | Boundary |
-|---|---|---|
-| `mfe-shell` | Host: global layout, routing, app shell, global notification state; mounts remotes at runtime | Owns navigation; owns no domain logic |
-| `mfe-config` | Remote 1: audit configuration (repo, rule sets, severity threshold); launches audits | Owns config forms; consumes REST contract |
-| `mfe-metrics` | Remote 2: live SSE console, health dashboard, refactoring drawer, Markdown export | Owns presentation of results; consumes SSE + export API |
-| Express API | REST entry point (`/api/v1`), audit lifecycle management | Validates against `specs/openapi.yaml` |
-| SSE Event Hub | Per-audit ordered event channel; decouples Agent Engine from HTTP connections | Validates events against `specs/events-schema.json` |
-| Agent Engine (Runner) | Orchestrates audit: clone/read repo, inspect snippets via LLM, emit typed events | Only component allowed to call the LLM |
-| Repository Reader | Clones remote Git repositories or reads local repositories beneath configured allowed roots | Local paths are canonicalized; symlink/path escapes are rejected |
+| Component             | Role                                                                                          | Boundary                                                         |
+| --------------------- | --------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| `mfe-shell`           | Host: global layout, routing, app shell, global notification state; mounts remotes at runtime | Owns navigation; owns no domain logic                            |
+| `mfe-config`          | Remote 1: audit configuration (repo, rule sets, severity threshold); launches audits          | Owns config forms; consumes REST contract                        |
+| `mfe-metrics`         | Remote 2: live SSE console, health dashboard, refactoring drawer, Markdown export             | Owns presentation of results; consumes SSE + export API          |
+| Express API           | REST entry point (`/api/v1`), audit lifecycle management                                      | Validates against `specs/openapi.yaml`                           |
+| SSE Event Hub         | Per-audit ordered event channel; decouples Agent Engine from HTTP connections                 | Validates events against `specs/events-schema.json`              |
+| Agent Engine (Runner) | Orchestrates audit: clone/read repo, inspect snippets via LLM, emit typed events              | Only component allowed to call the LLM                           |
+| Repository Reader     | Clones remote Git repositories or reads local repositories beneath configured allowed roots   | Local paths are canonicalized; symlink/path escapes are rejected |
 
 ## 6.2 Architecture Patterns
 
-| Pattern | Application |
-|---|---|
+| Pattern                                | Application                                                                                      |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------ |
 | **Microfrontends + Module Federation** | Runtime composition: host loads remotes via `@originjs/vite-plugin-federation` (constraint C-01) |
-| **Monorepo** | pnpm Workspaces + Turborepo (`apps/*`, `packages/*`) (constraint C-05) |
-| **Spec-first / contract-driven** | `/specs` as source of truth for REST + SSE (constraint C-04) |
-| **Unidirectional event streaming** | SSE from backend to browser; agent emits, hub fans out (constraint C-02) |
-| **Layered lightweight backend** | Controllers → Agent Runner → LLM abstraction (no heavy framework) |
+| **Monorepo**                           | pnpm Workspaces + Turborepo (`apps/*`, `packages/*`) (constraint C-05)                           |
+| **Spec-first / contract-driven**       | `/specs` as source of truth for REST + SSE (constraint C-04)                                     |
+| **Unidirectional event streaming**     | SSE from backend to browser; agent emits, hub fans out (constraint C-02)                         |
+| **Layered lightweight backend**        | Controllers → Agent Runner → LLM abstraction (no heavy framework)                                |
 
 ## 6.3 Technology Stack
 
@@ -67,18 +67,18 @@ graph TD
 
 ### 6.3.2 Technology Stack
 
-| Layer | Technology |
-|---|---|
-| Frontend framework | React + Vite |
-| MFE composition | `@originjs/vite-plugin-federation` (Module Federation) |
-| Server state / caching | TanStack Query (shared across MFE boundaries) |
-| Forms (`mfe-config`) | React Hook Form |
-| Charts (`mfe-metrics`) | Recharts |
-| Backend runtime | Node.js ≥ 20 + Express + TypeScript |
-| Real-time channel | Server-Sent Events (native HTTP streaming) |
-| LLM access | Local Ollama by default; external provider behind the abstraction layer only with explicit server-operator opt-in |
-| Monorepo tooling | pnpm Workspaces + Turborepo |
-| Testing | Vitest, React Testing Library, MSW, Playwright (see `10-testing.md`) |
+| Layer                  | Technology                                                                                                        |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| Frontend framework     | React + Vite                                                                                                      |
+| MFE composition        | `@originjs/vite-plugin-federation` (Module Federation)                                                            |
+| Server state / caching | TanStack Query (shared across MFE boundaries)                                                                     |
+| Forms (`mfe-config`)   | React Hook Form                                                                                                   |
+| Charts (`mfe-metrics`) | Recharts                                                                                                          |
+| Backend runtime        | Node.js ≥ 20 + Express + TypeScript                                                                               |
+| Real-time channel      | Server-Sent Events (native HTTP streaming)                                                                        |
+| LLM access             | Local Ollama by default; external provider behind the abstraction layer only with explicit server-operator opt-in |
+| Monorepo tooling       | pnpm Workspaces + Turborepo                                                                                       |
+| Testing                | Vitest, React Testing Library, MSW, Playwright (see `10-testing.md`)                                              |
 
 ### 6.3.3 Data Strategy
 
@@ -93,12 +93,12 @@ In-memory only for the MVP: audit definitions, live event buffers, and final res
 
 ### 6.3.5 Integration Strategy
 
-| Integration | Direction | Protocol | Contract | Risk handling |
-|---|---|---|---|---|
-| `mfe-config` → API | Outbound | REST (`POST /api/v1/audits`) | `specs/openapi.yaml` | MSW mocks for dev/tests |
-| `mfe-metrics` → API | Inbound | SSE (`GET /api/v1/audits/:id/stream`) | `specs/events-schema.json` | `EventSource` auto-retry; in-order per audit |
-| Agent Engine → LLM provider | Outbound | Local HTTP by default; external HTTP only with operator opt-in | Internal abstraction layer | Secret filtering/redaction before egress; graceful degradation |
-| Agent Engine → Git repo | Outbound | Git clone (URL) / filesystem (local path) | n/a | Local paths constrained to canonicalized allowed roots |
+| Integration                 | Direction | Protocol                                                       | Contract                   | Risk handling                                                  |
+| --------------------------- | --------- | -------------------------------------------------------------- | -------------------------- | -------------------------------------------------------------- |
+| `mfe-config` → API          | Outbound  | REST (`POST /api/v1/audits`)                                   | `specs/openapi.yaml`       | MSW mocks for dev/tests                                        |
+| `mfe-metrics` → API         | Inbound   | SSE (`GET /api/v1/audits/:id/stream`)                          | `specs/events-schema.json` | `EventSource` auto-retry; in-order per audit                   |
+| Agent Engine → LLM provider | Outbound  | Local HTTP by default; external HTTP only with operator opt-in | Internal abstraction layer | Secret filtering/redaction before egress; graceful degradation |
+| Agent Engine → Git repo     | Outbound  | Git clone (URL) / filesystem (local path)                      | n/a                        | Local paths constrained to canonicalized allowed roots         |
 
 ### 6.3.6 Security Boundaries
 

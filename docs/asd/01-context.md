@@ -28,20 +28,20 @@ Engineering teams spend significant time manually reviewing Pull Requests or tri
 
 ### Stakeholders
 
-| Stakeholder | Role |
-|---|---|
+| Stakeholder                           | Role                                      |
+| ------------------------------------- | ----------------------------------------- |
 | Engineering & Cybersecurity Direction | Client sponsor (VP of Engineering & CISO) |
-| Product Owner / Lead Developer | Primary recipient / delivery owner |
-| Frontend teams (per module) | Independent consumers of MFE boundaries |
+| Product Owner / Lead Developer        | Primary recipient / delivery owner        |
+| Frontend teams (per module)           | Independent consumers of MFE boundaries   |
 
 ## 1.2 Project Type & Timeline
 
-| Attribute | Value |
-|---|---|
-| Project type | **Greenfield** |
-| Engagement | Internal PoC / MVP — **15-day delivery** |
-| Budget | **$0** (local Ollama models, or free-tier LLM APIs only when explicitly enabled by the server operator; free internal CLI tools) |
-| Success criteria | SDD acceptance artifacts validated before application code (see `02-functional-overview.md` §2.4) |
+| Attribute        | Value                                                                                                                            |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| Project type     | **Greenfield**                                                                                                                   |
+| Engagement       | Internal PoC / MVP — **15-day delivery**                                                                                         |
+| Budget           | **$0** (local Ollama models, or free-tier LLM APIs only when explicitly enabled by the server operator; free internal CLI tools) |
+| Success criteria | SDD acceptance artifacts validated before application code (see `02-functional-overview.md` §2.4)                                |
 
 ## 1.3 IT Strategy Context
 

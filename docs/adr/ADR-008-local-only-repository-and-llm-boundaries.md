@@ -39,14 +39,14 @@ The current architecture uses an unspecified API listen host, accepts any access
 
 ## Implementation References
 
-| Concern | Current location / planned change |
-|---|---|
-| API listener currently omits an explicit host | `apps/api/src/server.ts` — bind to loopback |
-| Port and CORS configuration | `apps/api/src/lib/config.ts` — add listener and repository/LLM policy configuration as appropriate |
-| Local path currently checked only for accessibility | `apps/api/src/routes/audits.ts` and `apps/api/src/agent/repo-reader.ts` — enforce canonicalized roots and symlink containment |
-| LLM currently creates remote primary by default | `apps/api/src/agent/llm.ts` — local-only default and explicit external opt-in |
-| Source acquisition and snippet limits | `apps/api/src/agent/repo-reader.ts`, `apps/api/src/agent/runner.ts`, `apps/api/src/agent/llm.ts` — exclusions, redaction, and fail-closed egress |
-| Detailed implementation sequence | `docs/plans/implementation-plan-p0-security-boundaries.md` |
+| Concern                                             | Current location / planned change                                                                                                                |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| API listener currently omits an explicit host       | `apps/api/src/server.ts` — bind to loopback                                                                                                      |
+| Port and CORS configuration                         | `apps/api/src/lib/config.ts` — add listener and repository/LLM policy configuration as appropriate                                               |
+| Local path currently checked only for accessibility | `apps/api/src/routes/audits.ts` and `apps/api/src/agent/repo-reader.ts` — enforce canonicalized roots and symlink containment                    |
+| LLM currently creates remote primary by default     | `apps/api/src/agent/llm.ts` — local-only default and explicit external opt-in                                                                    |
+| Source acquisition and snippet limits               | `apps/api/src/agent/repo-reader.ts`, `apps/api/src/agent/runner.ts`, `apps/api/src/agent/llm.ts` — exclusions, redaction, and fail-closed egress |
+| Detailed implementation sequence                    | `docs/plans/implementation-plan-p0-security-boundaries.md`                                                                                       |
 
 ## Status
 

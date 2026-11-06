@@ -23,23 +23,23 @@ Every enabled LLM provider problem is **classified and emitted as a contract eve
 
 - **An enabled remote provider throttles/fails → use local Ollama fallback:** a `TOOL_EXECUTION` event with `status: 'degraded'` naming the provider used and a sanitized failure detail; the audit continues with the fallback's finding.
 - **All providers allowed by the selected mode are unavailable:** a `TOOL_EXECUTION` event with `status: 'failed'`, followed by a terminal `AUDIT_COMPLETED` with `payload.status: 'failed'` — the stream closes cleanly. In local-only mode no remote provider is attempted as a fallback.
-- **Any unexpected engine crash** is caught by a top-level guard and also ends in a terminal `AUDIT_COMPLETED { status: 'failed' }`, so *no stream is ever left open* (US4-AC6).
+- **Any unexpected engine crash** is caught by a top-level guard and also ends in a terminal `AUDIT_COMPLETED { status: 'failed' }`, so _no stream is ever left open_ (US4-AC6).
 
 Provider errors are **expected failures modelled as explicit results** (`LlmInspection` union: `succeeded | degraded | unavailable`), not thrown exceptions crossing module boundaries. `LlmProviderError` is confined to adapter internals and mapped to those results.
 
 ### Code references (`@sentinel/api`)
 
-| Concern | Location |
-|---|---|
-| Failure classification (`throttled \| unavailable \| invalid-response`) | `src/agent/llm.ts` — `LlmFailureKind`, `LlmProviderError` (429 → `throttled`, other non-2xx → `unavailable`) |
-| Result-union contract for inspections | `src/agent/llm.ts` — `LlmInspection` (`succeeded` / `degraded` / `unavailable`) |
-| Primary → Ollama fallback with degradation detail | `src/agent/llm.ts` — `OllamaFallbackLlmClient.inspectSnippet()` (returns `{ ...fallbackResult, status: 'degraded', detail: primaryResult.detail }`) |
-| Previous production default chain (superseded by ADR-008) | `src/agent/llm.ts` — current implementation still requires the local-first/opt-in policy from ADR-008 |
-| Degraded outcome → `TOOL_EXECUTION { status: 'degraded' }` event, analysis continues | `src/agent/runner.ts` — `SentinelAuditRunner.runAuditSteps()` (the `inspection.status === 'degraded'` branch) |
-| Both providers down → `TOOL_EXECUTION { status: 'failed' }` + terminal `AUDIT_COMPLETED { status: 'failed' }` | `src/agent/runner.ts` — `runAuditSteps()` (the `unavailable` branch) and `emitTerminalFailure()` |
-| Top-level crash guard → terminal failed event | `src/agent/runner.ts` — `execute()` (`catch` → `console.error` + `emitTerminalFailure`) |
-| Terminal event drives store + closes subscribers | `src/sse/hub.ts` — `emitAuditEvent()` (`AUDIT_COMPLETED` → `transitionAuditStatus` → `closeAllSubscribers`) |
-| Fixture parity for the failure sequence (MSW/test) | `src/agent/stub-runner.ts` — `failureSequence` (`degraded` → terminal `failed` events) |
+| Concern                                                                                                       | Location                                                                                                                                            |
+| ------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Failure classification (`throttled \| unavailable \| invalid-response`)                                       | `src/agent/llm.ts` — `LlmFailureKind`, `LlmProviderError` (429 → `throttled`, other non-2xx → `unavailable`)                                        |
+| Result-union contract for inspections                                                                         | `src/agent/llm.ts` — `LlmInspection` (`succeeded` / `degraded` / `unavailable`)                                                                     |
+| Primary → Ollama fallback with degradation detail                                                             | `src/agent/llm.ts` — `OllamaFallbackLlmClient.inspectSnippet()` (returns `{ ...fallbackResult, status: 'degraded', detail: primaryResult.detail }`) |
+| Previous production default chain (superseded by ADR-008)                                                     | `src/agent/llm.ts` — current implementation still requires the local-first/opt-in policy from ADR-008                                               |
+| Degraded outcome → `TOOL_EXECUTION { status: 'degraded' }` event, analysis continues                          | `src/agent/runner.ts` — `SentinelAuditRunner.runAuditSteps()` (the `inspection.status === 'degraded'` branch)                                       |
+| Both providers down → `TOOL_EXECUTION { status: 'failed' }` + terminal `AUDIT_COMPLETED { status: 'failed' }` | `src/agent/runner.ts` — `runAuditSteps()` (the `unavailable` branch) and `emitTerminalFailure()`                                                    |
+| Top-level crash guard → terminal failed event                                                                 | `src/agent/runner.ts` — `execute()` (`catch` → `console.error` + `emitTerminalFailure`)                                                             |
+| Terminal event drives store + closes subscribers                                                              | `src/sse/hub.ts` — `emitAuditEvent()` (`AUDIT_COMPLETED` → `transitionAuditStatus` → `closeAllSubscribers`)                                         |
+| Fixture parity for the failure sequence (MSW/test)                                                            | `src/agent/stub-runner.ts` — `failureSequence` (`degraded` → terminal `failed` events)                                                              |
 
 ## Consequences
 

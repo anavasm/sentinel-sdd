@@ -18,7 +18,7 @@
 Client-side alternatives considered:
 
 1. **TanStack Query for the stream** (e.g., one cache entry per event) — rejected: query caching assumes a single current value per key; an ordered append-only log with dedup/resync semantics fights the library instead of using it.
-2. **`fetch` + manual SSE parsing** — rejected: no benefit, since the browser's native `EventSource` already performs automatic reconnection *with* the `Last-Event-ID` header, which is exactly the resync primitive the server was built for (D-6).
+2. **`fetch` + manual SSE parsing** — rejected: no benefit, since the browser's native `EventSource` already performs automatic reconnection _with_ the `Last-Event-ID` header, which is exactly the resync primitive the server was built for (D-6).
 3. **Redux/Zustand global event store** — rejected: stream state is local to the metrics view; a global store adds surface without benefit (§5.3 simplicity).
 
 ## Decision
@@ -36,14 +36,14 @@ Client-side alternatives considered:
 
 ### Code references (planned placement — no code written yet; backend references are live)
 
-| Concern | Location |
-|---|---|
-| Hook + reducer | `apps/mfe-metrics/src/hooks/useAgentStream.ts` |
-| REST reconciliation query | `apps/mfe-metrics` — `useQuery(GET /audits/{id})` (openapi `getAudit`), Problem-typed 404 → "not found" view |
-| Wire format consumed | `@sentinel/api` `src/sse/serializer.ts` — `serializeSseFrame` (`id:`/`event:`/`data:`), `serializeSseRetryHint` (`retry: 5000`), `SSE_RESPONSE_HEADERS`; mock parity via `packages/contracts` `serializeSseEvents` |
-| Server resync semantics | `@sentinel/api` `src/sse/hub.ts` — `parseLastEventId`, `resumeCursorFor`, `subscribeToAuditStream` (replay-then-close) |
-| Server terminal close | `@sentinel/api` `src/sse/hub.ts` — `closeAllSubscribers` on `AUDIT_COMPLETED`; 404-before-headers in `src/routes/audits.ts` — `streamAuditHandler` (D-3) |
-| Event fixtures (tests) | `packages/contracts/src/fixtures/events.ts` — happy + failure sequences incl. degradation parity with `apps/api/src/agent/stub-runner.ts` |
+| Concern                   | Location                                                                                                                                                                                                           |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Hook + reducer            | `apps/mfe-metrics/src/hooks/useAgentStream.ts`                                                                                                                                                                     |
+| REST reconciliation query | `apps/mfe-metrics` — `useQuery(GET /audits/{id})` (openapi `getAudit`), Problem-typed 404 → "not found" view                                                                                                       |
+| Wire format consumed      | `@sentinel/api` `src/sse/serializer.ts` — `serializeSseFrame` (`id:`/`event:`/`data:`), `serializeSseRetryHint` (`retry: 5000`), `SSE_RESPONSE_HEADERS`; mock parity via `packages/contracts` `serializeSseEvents` |
+| Server resync semantics   | `@sentinel/api` `src/sse/hub.ts` — `parseLastEventId`, `resumeCursorFor`, `subscribeToAuditStream` (replay-then-close)                                                                                             |
+| Server terminal close     | `@sentinel/api` `src/sse/hub.ts` — `closeAllSubscribers` on `AUDIT_COMPLETED`; 404-before-headers in `src/routes/audits.ts` — `streamAuditHandler` (D-3)                                                           |
+| Event fixtures (tests)    | `packages/contracts/src/fixtures/events.ts` — happy + failure sequences incl. degradation parity with `apps/api/src/agent/stub-runner.ts`                                                                          |
 
 ## Consequences
 
@@ -59,7 +59,7 @@ Client-side alternatives considered:
 - **Gap window after buffer eviction:** if a client disconnects long enough for the server to evict past its cursor (1000-event cap, ADR-004), the server resumes from buffer end; the UI must show the gap banner rather than fake continuity — accepted for the PoC.
 - **Dedup requires id discipline:** the strategy assumes the server's monotonic ids (D-6). Any future multi-node backend sharding the sequence would need a redesign (single hub, single process today — ADR-003/004).
 - **No cross-tab sharing:** two tabs on the same audit each hold their own EventSource and reducer; harmless (the hub fans out per connection) but doubles connections — acceptable at PoC scale.
-- **Native `EventSource` cannot send custom headers on the *initial* request**, so future authentication for a shared/remote deployment may require a `fetch`-based parser or another approved mechanism. Such deployment is outside the current loopback-only policy (ADR-008); an `X-API-Key` placeholder is not authentication.
+- **Native `EventSource` cannot send custom headers on the _initial_ request**, so future authentication for a shared/remote deployment may require a `fetch`-based parser or another approved mechanism. Such deployment is outside the current loopback-only policy (ADR-008); an `X-API-Key` placeholder is not authentication.
 
 ## Status
 

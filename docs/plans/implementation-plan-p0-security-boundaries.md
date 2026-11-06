@@ -17,15 +17,15 @@ The normative requirements are NFR-S1/S2/S4-S7 and constraints C-09-C-12 in the 
 
 ## 2. Decisions and Configuration
 
-| Setting | Policy |
-|---|---|
-| API listener | Explicit loopback bind; no externally configurable non-loopback host in the unauthenticated PoC |
-| `SENTINEL_ALLOWED_REPO_ROOTS` | Comma-separated server-side paths; unset/empty disables local-path audits |
-| Path containment | Resolve real paths; permit symlinks only when their canonical targets remain inside an allowed root; reject escaping symlinks |
-| `SENTINEL_ALLOW_EXTERNAL_LLM` | Defaults to `false`; only literal `true` enables a configured remote provider |
-| Local LLM | Ollama on loopback is the default; a non-loopback Ollama URL is treated as external |
-| Secret detector | Select a maintained, offline-capable detector during implementation; establish and test a baseline exclusion/pattern set before wiring it into egress |
-| Detector/redactor failure | Fail closed for the affected snippet: do not call any LLM with the original content; emit only sanitized status/error information |
+| Setting                       | Policy                                                                                                                                                |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| API listener                  | Explicit loopback bind; no externally configurable non-loopback host in the unauthenticated PoC                                                       |
+| `SENTINEL_ALLOWED_REPO_ROOTS` | Comma-separated server-side paths; unset/empty disables local-path audits                                                                             |
+| Path containment              | Resolve real paths; permit symlinks only when their canonical targets remain inside an allowed root; reject escaping symlinks                         |
+| `SENTINEL_ALLOW_EXTERNAL_LLM` | Defaults to `false`; only literal `true` enables a configured remote provider                                                                         |
+| Local LLM                     | Ollama on loopback is the default; a non-loopback Ollama URL is treated as external                                                                   |
+| Secret detector               | Select a maintained, offline-capable detector during implementation; establish and test a baseline exclusion/pattern set before wiring it into egress |
+| Detector/redactor failure     | Fail closed for the affected snippet: do not call any LLM with the original content; emit only sanitized status/error information                     |
 
 Remote-provider credentials, when supported by the selected adapter, are supplied through server-side environment/secret configuration. They are never committed, returned to the browser, or written to logs/events. Enabling external access is a server-operator decision, not a client-controlled request field.
 

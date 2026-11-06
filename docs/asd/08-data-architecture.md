@@ -12,13 +12,13 @@
 
 ## 8.2 Data Entities
 
-| Entity | Held in | Lifetime | Notes |
-|---|---|---|---|
-| Audit definition (repo, rules, severity threshold) | In-memory Map | Session | Created via `POST /api/v1/audits`; conforms to `specs/openapi.yaml` |
-| Agent event stream | SSE hub buffer + browser | Session | 4 event types per `specs/events-schema.json` |
-| Findings (vulnerabilities, smells) with Before/After snippets | In-memory Map | Session | Consumed by `mfe-metrics` drawer/dashboard |
-| Health score / severity distribution | Derived client-side | Session | Computed in `mfe-metrics` from received events |
-| Final report | **Exported file** | Persistent (user-side) | Markdown export is the only durable artifact of an audit |
+| Entity                                                        | Held in                  | Lifetime               | Notes                                                               |
+| ------------------------------------------------------------- | ------------------------ | ---------------------- | ------------------------------------------------------------------- |
+| Audit definition (repo, rules, severity threshold)            | In-memory Map            | Session                | Created via `POST /api/v1/audits`; conforms to `specs/openapi.yaml` |
+| Agent event stream                                            | SSE hub buffer + browser | Session                | 4 event types per `specs/events-schema.json`                        |
+| Findings (vulnerabilities, smells) with Before/After snippets | In-memory Map            | Session                | Consumed by `mfe-metrics` drawer/dashboard                          |
+| Health score / severity distribution                          | Derived client-side      | Session                | Computed in `mfe-metrics` from received events                      |
+| Final report                                                  | **Exported file**        | Persistent (user-side) | Markdown export is the only durable artifact of an audit            |
 
 ## 8.3 Event Schema Governance
 

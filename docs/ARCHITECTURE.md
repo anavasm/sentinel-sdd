@@ -14,7 +14,7 @@ graph TD
         Shell["mfe-shell (Host App)"]
         ConfigMFE["mfe-config (Remote 1)"]
         MetricsMFE["mfe-metrics (Remote 2)"]
-        
+
         Shell -->|Module Federation| ConfigMFE
         Shell -->|Module Federation| MetricsMFE
     end
@@ -23,7 +23,7 @@ graph TD
         API["Express REST API (loopback only)"]
         SSEHub["SSE Event Stream Hub"]
         AgentEngine["AI Agent Engine / Runner"]
-        
+
         API --> SSEHub
         API --> AgentEngine
         AgentEngine -->|Emits Events| SSEHub
@@ -44,14 +44,15 @@ The frontend uses Vite + @originjs/vite-plugin-federation to enable runtime Modu
 
 ### Microfrontend Topology
 
-* **`mfe-shell` (Host / Container):** Global Layout, Routing, App Shell, Global Notification State. Powered by React, React Router, TanStack Query.
-* **`mfe-config` (Remote 1):** Audit Configuration Form, Rule Selection, Severity Thresholds. Powered by React, TanStack Query, React Hook Form.
-* **`mfe-metrics` (Remote 2):** Live Agent Event Stream (SSE), Health Metrics Dashboard, Refactoring Drawer. Powered by React, TanStack Query, Recharts, Custom SSE Hook.
+- **`mfe-shell` (Host / Container):** Global Layout, Routing, App Shell, Global Notification State. Powered by React, React Router, TanStack Query.
+- **`mfe-config` (Remote 1):** Audit Configuration Form, Rule Selection, Severity Thresholds. Powered by React, TanStack Query, React Hook Form.
+- **`mfe-metrics` (Remote 2):** Live Agent Event Stream (SSE), Health Metrics Dashboard, Refactoring Drawer. Powered by React, TanStack Query, Recharts, Custom SSE Hook.
 
 ### Runtime Communication & State
-* **Inter-MFE Navigation:** Controlled by `mfe-shell` routing.
-* **Data Fetching & Caching:** TanStack Query (React Query) handles server-state caching and synchronization across MFE boundaries.
-* **Event Streaming:** `mfe-metrics` consumes a custom React Hook (`useAgentStream`) connected to the Express SSE endpoint.
+
+- **Inter-MFE Navigation:** Controlled by `mfe-shell` routing.
+- **Data Fetching & Caching:** TanStack Query (React Query) handles server-state caching and synchronization across MFE boundaries.
+- **Event Streaming:** `mfe-metrics` consumes a custom React Hook (`useAgentStream`) connected to the Express SSE endpoint.
 
 ---
 
@@ -74,17 +75,17 @@ sequenceDiagram
     Server-->>Config: 201 Created { auditId: "aud_123" }
     Config->>Shell: Redirect to /audits/aud_123
     Shell->>Metrics: Render Metrics View for "aud_123"
-    
+
     Metrics->>Server: GET /api/v1/audits/aud_123/stream (EventSource)
     Server->>Agent: Spawn Audit Task (Async)
-    
+
     loop Audit Execution Stream
         Agent->>Server: Emit Step (AGENT_THOUGHT / TOOL_EXECUTION)
         Server-->>Metrics: SSE Event: "AGENT_THOUGHT"
         Agent->>Server: Emit Finding (VULNERABILITY_FOUND)
         Server-->>Metrics: SSE Event: "VULNERABILITY_FOUND"
     end
-    
+
     Agent->>Server: Complete Audit
     Server-->>Metrics: SSE Event: "AUDIT_COMPLETED"
 ```
@@ -94,9 +95,10 @@ sequenceDiagram
 The backend is a lightweight Node.js service written in TypeScript.
 
 ### Core Modules
-* **`controllers/audit.controller.ts`**: Handles REST requests to trigger audits and returns audit metadata.
-* **`controllers/stream.controller.ts`**: Sets HTTP headers for SSE (`Content-Type: text/event-stream`, `Cache-Control: no-cache`, `Connection: keep-alive`) and pipes events from the Agent Engine.
-* **`agent/runner.ts`**: Manages execution flow, reading local code files or invoking CLI/LLM tools, emitting formatted event objects conforming to `specs/events-schema.json`.
+
+- **`controllers/audit.controller.ts`**: Handles REST requests to trigger audits and returns audit metadata.
+- **`controllers/stream.controller.ts`**: Sets HTTP headers for SSE (`Content-Type: text/event-stream`, `Cache-Control: no-cache`, `Connection: keep-alive`) and pipes events from the Agent Engine.
+- **`agent/runner.ts`**: Manages execution flow, reading local code files or invoking CLI/LLM tools, emitting formatted event objects conforming to `specs/events-schema.json`.
 
 ---
 
