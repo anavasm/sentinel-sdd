@@ -3,6 +3,7 @@ import type { AddressInfo } from 'node:net';
 import type { Server } from 'node:http';
 
 import { createApp } from '../src/app.js';
+import { listenOnLoopback } from '../src/lib/listener.js';
 
 /**
  * Smoke integration test (plan Task 1.3 / US1-AC1): the server actually boots
@@ -14,9 +15,18 @@ describe('US-1 scaffolding — server bootstrap', () => {
   let baseUrl: string;
 
   beforeAll(async () => {
-    server = createApp().listen(0);
-    const address = server.address() as AddressInfo;
-    baseUrl = `http://localhost:${address.port}/api/v1`;
+    server = listenOnLoopback(createApp(), 0);
+    await new Promise<void>((resolve, reject) => {
+      server.once('error', reject);
+      server.once('listening', resolve);
+    });
+    const rawAddress = server.address();
+    if (rawAddress === null || typeof rawAddress === 'string') {
+      throw new Error('Expected the API listener to bind to a TCP address.');
+    }
+    const address: AddressInfo = rawAddress;
+    baseUrl = `http://127.0.0.1:${address.port}/api/v1`;
+    expect(address.address).toBe('127.0.0.1');
   });
 
   afterAll(async () => {
