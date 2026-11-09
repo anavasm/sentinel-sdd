@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -147,6 +147,7 @@ describe('US-5 — Agent Runner real implementation', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllEnvs();
   });
 
   describe('happy path — full event pipeline and terminal summary (US5-AC1/AC4)', () => {
@@ -270,6 +271,7 @@ describe('US-5 — Agent Runner real implementation', () => {
     it('reads files from a localPath directory (real fs reader)', async () => {
       const repoDir = await mkdtemp(join(tmpdir(), 'sentinel-agent-repo-'));
       try {
+        vi.stubEnv('SENTINEL_ALLOWED_REPO_ROOTS', repoDir);
         await mkdir(join(repoDir, 'src'), { recursive: true });
         await writeFile(join(repoDir, 'src', 'queries.ts'), 'const q = `SELECT ${id}`;', 'utf8');
         await writeFile(join(repoDir, 'README.md'), '# not source', 'utf8');
@@ -284,7 +286,51 @@ describe('US-5 — Agent Runner real implementation', () => {
           expect(result.files[0]?.content).toContain('SELECT');
         }
       } finally {
+        vi.unstubAllEnvs();
         await rm(repoDir, { recursive: true, force: true });
+      }
+    });
+
+    it('follows an in-root file symlink and reads the canonical file only once', async () => {
+      const repoDir = await mkdtemp(join(tmpdir(), 'sentinel-agent-symlink-in-'));
+      try {
+        vi.stubEnv('SENTINEL_ALLOWED_REPO_ROOTS', repoDir);
+        const sourcePath = join(repoDir, 'source.ts');
+        await writeFile(sourcePath, 'export const inside = true;', 'utf8');
+        await symlink(sourcePath, join(repoDir, 'linked.ts'));
+
+        const result = await new FsRepositoryReader().read(localPathConfig(repoDir));
+
+        expect(result.ok).toBe(true);
+        if (result.ok) {
+          expect(result.files).toHaveLength(1);
+          expect(result.files[0]?.content).toContain('inside');
+        }
+      } finally {
+        vi.unstubAllEnvs();
+        await rm(repoDir, { recursive: true, force: true });
+      }
+    });
+
+    it('rejects a nested symlink that resolves outside all allowed roots', async () => {
+      const repoDir = await mkdtemp(join(tmpdir(), 'sentinel-agent-symlink-out-'));
+      const outsideDir = await mkdtemp(join(tmpdir(), 'sentinel-agent-target-'));
+      try {
+        vi.stubEnv('SENTINEL_ALLOWED_REPO_ROOTS', repoDir);
+        const outsidePath = join(outsideDir, 'outside.ts');
+        await writeFile(outsidePath, 'export const outside = true;', 'utf8');
+        await symlink(outsidePath, join(repoDir, 'linked.ts'));
+
+        const result = await new FsRepositoryReader().read(localPathConfig(repoDir));
+
+        expect(result).toEqual({
+          ok: false,
+          error: 'Repository contains a path outside configured allowed roots.',
+        });
+      } finally {
+        vi.unstubAllEnvs();
+        await rm(repoDir, { recursive: true, force: true });
+        await rm(outsideDir, { recursive: true, force: true });
       }
     });
 

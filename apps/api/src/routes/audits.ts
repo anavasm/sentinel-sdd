@@ -1,11 +1,10 @@
-import { access } from 'node:fs/promises';
-
 import type { RequestHandler } from 'express';
 
 import type { AuditConfig } from '@sentinel/contracts';
 
 import type { AuditRunner } from '../agent/runner.js';
 import { buildProblem, ProblemError, ProblemType } from '../lib/problems.js';
+import { resolveAllowedLocalRepository } from '../lib/repository-paths.js';
 import { validateAuditConfig } from '../lib/validators.js';
 import { AUDIT_ID_PATTERN, createAudit, findAuditById } from '../store/audits.js';
 import { parseLastEventId, subscribeToAuditStream } from '../sse/hub.js';
@@ -15,11 +14,11 @@ import { serializeSseFrame, serializeSseRetryHint, SSE_RESPONSE_HEADERS } from '
  * `POST /api/v1/audits` controller (plan US-2, Task 2.3 + US-4 Task 4.5).
  *
  * Fail-fast validation order: body size (413, enforced by the JSON parser),
- * Ajv `AuditConfig` validation (400), `localPath` existence via fs/promises
- * (400 — never deferred to the agent runtime). Success persists an audit in
- * `queued` state, responds `201 AuditCreated`, and hands the audit id to the
- * configured runner (kicked asynchronously via `setImmediate` — the HTTP
- * response is never blocked). `runner === null` disables execution (tests).
+ * Ajv `AuditConfig` validation (400), and canonicalized localPath allowlist
+ * validation (400 — never deferred to the agent runtime). Success persists an
+ * audit in `queued` state, responds `201 AuditCreated`, and hands the audit id
+ * to the configured runner asynchronously. `runner === null` disables
+ * execution (tests).
  */
 
 /** Ajv instancePath → openapi `errors[].field` (root-level errors map to 'body'). */
@@ -47,22 +46,23 @@ export function createAuditHandler(runner: AuditRunner | null): RequestHandler {
       }
 
       // Narrowed by the Ajv type guard: `config` is AuditConfig here.
-      const validatedConfig: AuditConfig = config;
+      let validatedConfig: AuditConfig = config;
       if (validatedConfig.localPath !== undefined) {
-        const pathExists = await pathIsAccessible(validatedConfig.localPath);
-        if (!pathExists) {
+        const allowedRepository = await resolveAllowedLocalRepository(validatedConfig.localPath);
+        if (allowedRepository === undefined) {
           throw new ProblemError(
             buildProblem(400, ProblemType.VALIDATION_ERROR, {
-              detail: 'The local repository path does not exist or is not accessible.',
+              detail: 'The local repository path is inaccessible or outside configured allowed roots.',
               errors: [
                 {
                   field: 'localPath',
-                  message: 'path does not exist or is not accessible',
+                  message: 'path is inaccessible or outside configured allowed roots',
                 },
               ],
             }),
           );
         }
+        validatedConfig = { ...validatedConfig, localPath: allowedRepository.path };
       }
 
       const audit = createAudit({ config: validatedConfig });
@@ -78,15 +78,6 @@ export function createAuditHandler(runner: AuditRunner | null): RequestHandler {
       next(error);
     }
   };
-}
-
-async function pathIsAccessible(localPath: string): Promise<boolean> {
-  try {
-    await access(localPath);
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 /**

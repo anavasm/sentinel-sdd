@@ -74,8 +74,9 @@ paths:
         "400":
           description: >
             Invalid configuration: malformed body, missing repository source,
-            no enabled rule set, or invalid severity threshold. A local
-            repository path that does not exist also fails here (fail fast).
+            no enabled rule set, invalid severity threshold, or a local
+            repository path that is inaccessible or outside configured allowed
+            roots (fail fast).
           content:
             application/problem+json:
               schema:

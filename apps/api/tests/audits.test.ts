@@ -1,9 +1,9 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, symlink, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 
 import request from 'supertest';
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { Audit, Finding } from '@sentinel/contracts';
 
@@ -69,18 +69,32 @@ function bodyOfExactSize(targetBytes: number): string {
 
 describe('US-2 — POST /api/v1/audits', () => {
   let localRepoDir: string;
+  let outsideRepoDir: string;
+  let siblingRepoDir: string;
 
   beforeAll(async () => {
     localRepoDir = await mkdtemp(join(tmpdir(), 'sentinel-audit-'));
     await writeFile(join(localRepoDir, 'sample-file.ts'), 'export const sample = 1;\n', 'utf8');
+    outsideRepoDir = await mkdtemp(join(tmpdir(), 'sentinel-outside-'));
+    await writeFile(join(outsideRepoDir, 'outside-file.ts'), 'export const outside = true;\n', 'utf8');
+    siblingRepoDir = `${localRepoDir}-sibling`;
+    await mkdir(siblingRepoDir);
+    await writeFile(join(siblingRepoDir, 'sibling-file.ts'), 'export const sibling = true;\n', 'utf8');
   });
 
   afterAll(async () => {
     await rm(localRepoDir, { recursive: true, force: true });
+    await rm(outsideRepoDir, { recursive: true, force: true });
+    await rm(siblingRepoDir, { recursive: true, force: true });
   });
 
   beforeEach(() => {
     resetAuditStore();
+    vi.stubEnv('SENTINEL_ALLOWED_REPO_ROOTS', localRepoDir);
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
   });
 
   describe('201 happy path', () => {
@@ -197,7 +211,75 @@ describe('US-2 — POST /api/v1/audits', () => {
       });
     });
 
-    it('rejects a nonexistent localPath (fail-fast, before agent runtime)', async () => {
+    it('rejects a localPath when no allowed roots are configured', async () => {
+      vi.stubEnv('SENTINEL_ALLOWED_REPO_ROOTS', '');
+      const app = createApp({ runner: null });
+
+      const response = await request(app)
+        .post(`${API_V1}/audits`)
+        .send(validLocalPathConfig(localRepoDir));
+
+      expect(response.status).toBe(400);
+      expect(response.body.errors).toEqual([
+        { field: 'localPath', message: 'path is inaccessible or outside configured allowed roots' },
+      ]);
+    });
+
+    it('rejects local paths when every configured root is invalid or inaccessible', async () => {
+      vi.stubEnv('SENTINEL_ALLOWED_REPO_ROOTS', 'relative/path,/nonexistent/sentinel/allowed-root');
+      const app = createApp({ runner: null });
+
+      const response = await request(app)
+        .post(`${API_V1}/audits`)
+        .send(validLocalPathConfig(localRepoDir));
+
+      expect(response.status).toBe(400);
+    });
+
+    it('rejects an existing localPath outside the configured allowed roots', async () => {
+      const runner = { run: vi.fn() };
+      const app = createApp({ runner });
+
+      const response = await request(app)
+        .post(`${API_V1}/audits`)
+        .send(validLocalPathConfig(outsideRepoDir));
+
+      expect(response.status).toBe(400);
+      expect(response.body.errors).toEqual([
+        { field: 'localPath', message: 'path is inaccessible or outside configured allowed roots' },
+      ]);
+      expect(runner.run).not.toHaveBeenCalled();
+    });
+
+    it('rejects sibling-prefix and parent-traversal paths outside the allowed root', async () => {
+      const app = createApp({ runner: null });
+      const traversalPath = join(localRepoDir, '..', basename(siblingRepoDir));
+
+      for (const localPath of [siblingRepoDir, traversalPath]) {
+        const response = await request(app)
+          .post(`${API_V1}/audits`)
+          .send(validLocalPathConfig(localPath));
+
+        expect(response.status).toBe(400);
+      }
+    });
+
+    it('rejects a localPath symlink whose target is outside the configured root', async () => {
+      const linkPath = join(localRepoDir, 'outside-link');
+      await symlink(outsideRepoDir, linkPath);
+      try {
+        const app = createApp({ runner: null });
+        const response = await request(app)
+          .post(`${API_V1}/audits`)
+          .send(validLocalPathConfig(linkPath));
+
+        expect(response.status).toBe(400);
+      } finally {
+        await unlink(linkPath);
+      }
+    });
+
+    it('rejects a nonexistent localPath before agent runtime', async () => {
       const app = createApp({ runner: null });
       const response = await request(app)
         .post(`${API_V1}/audits`)
@@ -207,7 +289,7 @@ describe('US-2 — POST /api/v1/audits', () => {
       expect(response.headers['content-type']).toContain('application/problem+json');
       expect(response.body.type).toBe(PROBLEM_TYPE_URIS.validation);
       expect(response.body.errors).toEqual([
-        { field: 'localPath', message: 'path does not exist or is not accessible' },
+        { field: 'localPath', message: 'path is inaccessible or outside configured allowed roots' },
       ]);
     });
   });
@@ -530,6 +612,11 @@ describe('US-5 — POST /audits wires the real agent runner end-to-end', () => {
   beforeEach(() => {
     resetAuditStore();
     resetSseHub();
+    vi.stubEnv('SENTINEL_ALLOWED_REPO_ROOTS', localRepoDir);
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
   });
 
   /** Stub LLM adapter: finds the SQL injection in every inspected snippet. */

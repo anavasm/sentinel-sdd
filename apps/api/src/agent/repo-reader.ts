@@ -1,11 +1,12 @@
 import { execFile } from 'node:child_process';
 import type { Dirent } from 'node:fs';
-import { mkdtemp, readdir, readFile, rm, stat } from 'node:fs/promises';
+import { mkdtemp, readdir, readFile, realpath, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 
 import type { AuditConfig } from '@sentinel/contracts';
+import { isPathWithinRoots, resolveAllowedLocalRepository } from '../lib/repository-paths.js';
 
 /**
  * Repository access for the Audit Runner (plan US-5 Task 5.1).
@@ -84,7 +85,14 @@ export class FsRepositoryReader implements RepositoryReader {
 
   async read(config: AuditConfig): Promise<RepositoryReadResult> {
     if (config.localPath !== undefined) {
-      return readDirectoryAsRepo(config.localPath);
+      const allowedRepository = await resolveAllowedLocalRepository(config.localPath);
+      if (allowedRepository === undefined) {
+        return {
+          ok: false,
+          error: 'Local repository path is inaccessible or outside configured allowed roots.',
+        };
+      }
+      return readDirectoryAsRepo(allowedRepository.path, allowedRepository.roots);
     }
     if (config.repoUrl !== undefined) {
       return readGitRepo(config.repoUrl, this.runGit);
@@ -104,7 +112,8 @@ async function readGitRepo(
   const cloneDir = await mkdtemp(join(tmpdir(), 'sentinel-clone-'));
   try {
     await runGit(['clone', '--depth', '1', repoUrl, cloneDir]);
-    return await readDirectoryAsRepo(cloneDir);
+    const canonicalCloneDir = await realpath(cloneDir);
+    return await readDirectoryAsRepo(canonicalCloneDir, [canonicalCloneDir]);
   } catch (error) {
     return {
       ok: false,
@@ -115,8 +124,13 @@ async function readGitRepo(
   }
 }
 
-async function readDirectoryAsRepo(rootDir: string): Promise<RepositoryReadResult> {
+async function readDirectoryAsRepo(
+  rootDir: string,
+  allowedRoots: readonly string[],
+): Promise<RepositoryReadResult> {
   const files: RepositoryFile[] = [];
+  const visitedDirectories = new Set([rootDir]);
+  const visitedFiles = new Set<string>();
   const walk = async (directory: string): Promise<string | undefined> => {
     let entries: Dirent[];
     try {
@@ -133,20 +147,49 @@ async function readDirectoryAsRepo(rootDir: string): Promise<RepositoryReadResul
         if (SKIPPED_DIRECTORIES.has(entry.name)) {
           continue;
         }
-        const walkError = await walk(entryPath);
+      }
+
+      let canonicalPath: string;
+      try {
+        canonicalPath = await realpath(entryPath);
+      } catch {
+        continue;
+      }
+      if (!isPathWithinRoots(canonicalPath, allowedRoots)) {
+        return 'Repository contains a path outside configured allowed roots.';
+      }
+
+      let entryStat;
+      try {
+        entryStat = await stat(canonicalPath);
+      } catch {
+        continue;
+      }
+
+      if (entryStat.isDirectory()) {
+        if (SKIPPED_DIRECTORIES.has(entry.name) || visitedDirectories.has(canonicalPath)) {
+          continue;
+        }
+        visitedDirectories.add(canonicalPath);
+        const walkError = await walk(canonicalPath);
         if (walkError !== undefined) {
           return walkError;
         }
         continue;
       }
-      if (!SOURCE_EXTENSIONS.has(extensionOf(entry.name))) {
+      if (!entryStat.isFile() || !SOURCE_EXTENSIONS.has(extensionOf(entry.name))) {
         continue;
       }
-      const content = await readBoundedFile(entryPath);
+      if (visitedFiles.has(canonicalPath)) {
+        continue;
+      }
+      visitedFiles.add(canonicalPath);
+
+      const content = await readBoundedFile(canonicalPath);
       if (content === null) {
         continue; // Unreadable or oversized files are skipped, not fatal.
       }
-      files.push({ filePath: relativePath(rootDir, entryPath), content });
+      files.push({ filePath: relativePath(rootDir, canonicalPath), content });
     }
     return undefined;
   };

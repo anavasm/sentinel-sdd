@@ -50,11 +50,13 @@ Remote-provider credentials, when supported by the selected adapter, are supplie
 
 - An unset, empty, malformed, or inaccessible root configuration cannot broaden access; local-path audits are rejected when no valid roots remain.
 - A path equal to or beneath an allowed root is accepted after canonicalization.
-- A symlink whose canonical target remains inside an allowed root may be followed after target validation.
+- A symlink whose canonical target remains inside a configured allowed root may be followed after target validation; targets outside every configured root are rejected.
 - Parent traversal, a root symlink resolving outside the allowlist, and nested file/directory symlinks resolving outside it are rejected without reading their targets.
 - A path outside the allowlist is rejected before audit creation and before the runner starts.
 - Git URL audits remain unaffected by the local filesystem allowlist and still use the existing file-count, file-size, and clone-time bounds.
 - Tests cover normal containment, sibling-prefix confusion, `..` traversal, nonexistent paths, in-root symlinks, and symlink escapes on supported platforms.
+
+**PoC limitation:** canonicalization is checked at audit creation and again during repository traversal, but this does not provide race-free protection against another local process replacing filesystem entries concurrently between validation and read. The current single-user, loopback-only PoC assumes the operator controls the allowlisted directories. A shared/multi-user deployment must use an immutable repository snapshot or a descriptor-relative no-follow traversal strategy before it can claim protection against concurrent filesystem mutation.
 
 ### US-3 — Local-Only LLM Default and External Opt-In
 
