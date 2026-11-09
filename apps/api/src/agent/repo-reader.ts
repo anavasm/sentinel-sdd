@@ -97,7 +97,10 @@ export class FsRepositoryReader implements RepositoryReader {
     if (config.repoUrl !== undefined) {
       return readGitRepo(config.repoUrl, this.runGit);
     }
-    return { ok: false, error: 'Audit config has neither repoUrl nor localPath.' };
+    return {
+      ok: false,
+      error: 'Audit config has neither repoUrl nor localPath.',
+    };
   }
 }
 
@@ -199,7 +202,10 @@ async function readDirectoryAsRepo(
     return { ok: false, error: walkError };
   }
   if (files.length === 0) {
-    return { ok: false, error: 'No readable source files were found in the repository.' };
+    return {
+      ok: false,
+      error: 'No readable source files were found in the repository.',
+    };
   }
   return { ok: true, files };
 }

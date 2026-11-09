@@ -38,7 +38,11 @@ const PROBLEM_TYPE_URIS = {
 function validRepoUrlConfig(): Record<string, unknown> {
   return {
     repoUrl: 'https://github.com/example/vulnerable-app.git',
-    ruleSets: { owaspTop10: true, testQuality: false, codeSmellsPerformance: false },
+    ruleSets: {
+      owaspTop10: true,
+      testQuality: false,
+      codeSmellsPerformance: false,
+    },
     severityThreshold: 'MEDIUM',
   };
 }
@@ -46,7 +50,11 @@ function validRepoUrlConfig(): Record<string, unknown> {
 function validLocalPathConfig(localPath: string): Record<string, unknown> {
   return {
     localPath,
-    ruleSets: { owaspTop10: false, testQuality: true, codeSmellsPerformance: false },
+    ruleSets: {
+      owaspTop10: false,
+      testQuality: true,
+      codeSmellsPerformance: false,
+    },
     severityThreshold: 'LOW',
   };
 }
@@ -76,10 +84,18 @@ describe('US-2 — POST /api/v1/audits', () => {
     localRepoDir = await mkdtemp(join(tmpdir(), 'sentinel-audit-'));
     await writeFile(join(localRepoDir, 'sample-file.ts'), 'export const sample = 1;\n', 'utf8');
     outsideRepoDir = await mkdtemp(join(tmpdir(), 'sentinel-outside-'));
-    await writeFile(join(outsideRepoDir, 'outside-file.ts'), 'export const outside = true;\n', 'utf8');
+    await writeFile(
+      join(outsideRepoDir, 'outside-file.ts'),
+      'export const outside = true;\n',
+      'utf8',
+    );
     siblingRepoDir = `${localRepoDir}-sibling`;
     await mkdir(siblingRepoDir);
-    await writeFile(join(siblingRepoDir, 'sibling-file.ts'), 'export const sibling = true;\n', 'utf8');
+    await writeFile(
+      join(siblingRepoDir, 'sibling-file.ts'),
+      'export const sibling = true;\n',
+      'utf8',
+    );
   });
 
   afterAll(async () => {
@@ -108,7 +124,10 @@ describe('US-2 — POST /api/v1/audits', () => {
       expect(response.status).toBe(201);
       expect(response.headers['content-type']).toContain('application/json');
       expect(response.body.auditId).toMatch(AUDIT_ID_PATTERN);
-      expect(response.body).toEqual({ auditId: response.body.auditId, status: 'queued' });
+      expect(response.body).toEqual({
+        auditId: response.body.auditId,
+        status: 'queued',
+      });
     });
 
     it('creates an audit from an existing localPath (fail-fast existence check passes)', async () => {
@@ -147,7 +166,10 @@ describe('US-2 — POST /api/v1/audits', () => {
       expect(response.body.status).toBe(400);
       expect(Array.isArray(response.body.errors)).toBe(true);
       expect(response.body.errors.length).toBeGreaterThan(0);
-      for (const error of response.body.errors as Array<{ field: unknown; message: unknown }>) {
+      for (const error of response.body.errors as Array<{
+        field: unknown;
+        message: unknown;
+      }>) {
         expect(typeof error.field).toBe('string');
         expect(typeof error.message).toBe('string');
       }
@@ -186,7 +208,11 @@ describe('US-2 — POST /api/v1/audits', () => {
     it('rejects ruleSets with all values false (zero enabled rule sets)', async () => {
       await expectValidationProblem({
         ...validRepoUrlConfig(),
-        ruleSets: { owaspTop10: false, testQuality: false, codeSmellsPerformance: false },
+        ruleSets: {
+          owaspTop10: false,
+          testQuality: false,
+          codeSmellsPerformance: false,
+        },
       });
     });
 
@@ -221,7 +247,10 @@ describe('US-2 — POST /api/v1/audits', () => {
 
       expect(response.status).toBe(400);
       expect(response.body.errors).toEqual([
-        { field: 'localPath', message: 'path is inaccessible or outside configured allowed roots' },
+        {
+          field: 'localPath',
+          message: 'path is inaccessible or outside configured allowed roots',
+        },
       ]);
     });
 
@@ -246,7 +275,10 @@ describe('US-2 — POST /api/v1/audits', () => {
 
       expect(response.status).toBe(400);
       expect(response.body.errors).toEqual([
-        { field: 'localPath', message: 'path is inaccessible or outside configured allowed roots' },
+        {
+          field: 'localPath',
+          message: 'path is inaccessible or outside configured allowed roots',
+        },
       ]);
       expect(runner.run).not.toHaveBeenCalled();
     });
@@ -289,7 +321,10 @@ describe('US-2 — POST /api/v1/audits', () => {
       expect(response.headers['content-type']).toContain('application/problem+json');
       expect(response.body.type).toBe(PROBLEM_TYPE_URIS.validation);
       expect(response.body.errors).toEqual([
-        { field: 'localPath', message: 'path is inaccessible or outside configured allowed roots' },
+        {
+          field: 'localPath',
+          message: 'path is inaccessible or outside configured allowed roots',
+        },
       ]);
     });
   });
@@ -331,9 +366,10 @@ describe('US-2 — POST /api/v1/audits', () => {
       const renderJson = vi.fn();
       const setHeaders = vi.fn(() => ({ json: renderJson }));
       const setStatus = vi.fn(() => ({ set: setHeaders }));
-      const res = { status: setStatus, set: setHeaders } as unknown as Parameters<
-        typeof problemErrorHandler
-      >[2];
+      const res = {
+        status: setStatus,
+        set: setHeaders,
+      } as unknown as Parameters<typeof problemErrorHandler>[2];
       const req = {
         method: 'POST',
         originalUrl: '/api/v1/audits',
@@ -348,7 +384,10 @@ describe('US-2 — POST /api/v1/audits', () => {
 
       expect(setStatus).toHaveBeenCalledWith(400);
       expect(renderJson).toHaveBeenCalledWith(
-        expect.objectContaining({ type: PROBLEM_TYPE_URIS.validation, status: 400 }),
+        expect.objectContaining({
+          type: PROBLEM_TYPE_URIS.validation,
+          status: 400,
+        }),
       );
     });
 
@@ -440,7 +479,9 @@ describe('US-3 - GET /api/v1/audits/:auditId and session state', () => {
     expect(response.status).toBe(200);
     expectAuditShape(response.body, 'running');
     expect(response.body.findings).toHaveLength(1);
-    expect(response.body.findings[0]).toMatchObject({ ruleId: 'owasp-a03-injection' });
+    expect(response.body.findings[0]).toMatchObject({
+      ruleId: 'owasp-a03-injection',
+    });
     expect(response.body.summary).toBeUndefined();
   });
 
@@ -457,14 +498,19 @@ describe('US-3 - GET /api/v1/audits/:auditId and session state', () => {
     expect(response.status).toBe(200);
     expectAuditShape(response.body, 'completed');
     expect(response.body.findings).toHaveLength(2);
-    expect(response.body.summary).toEqual({ totalFindings: 2, healthScore: 62 });
+    expect(response.body.summary).toEqual({
+      totalFindings: 2,
+      healthScore: 62,
+    });
   });
 
   it('returns 200 with a failed audit including a summary (terminal unhappy path)', async () => {
     const auditId = await createAuditViaApi();
     transitionAuditStatus(auditId, 'running');
     transitionAuditStatus(auditId, 'failed');
-    setAuditSummary(auditId, { reason: 'agent crashed while analyzing rule set' });
+    setAuditSummary(auditId, {
+      reason: 'agent crashed while analyzing rule set',
+    });
     const app = createApp({ runner: null });
 
     const response = await request(app).get(`${API_V1}/audits/${auditId}`);
@@ -472,7 +518,9 @@ describe('US-3 - GET /api/v1/audits/:auditId and session state', () => {
     expect(response.status).toBe(200);
     expectAuditShape(response.body, 'failed');
     expect(response.body.findings).toEqual([]);
-    expect(response.body.summary).toEqual({ reason: 'agent crashed while analyzing rule set' });
+    expect(response.body.summary).toEqual({
+      reason: 'agent crashed while analyzing rule set',
+    });
   });
 
   it('returns 404 Problem Details for an unknown auditId with a valid pattern', async () => {
@@ -579,7 +627,10 @@ describe('US-3 - audit lifecycle store transitions', () => {
     transitionAuditStatus(auditId, 'running');
     transitionAuditStatus(auditId, 'completed');
 
-    const updated = setAuditSummary(auditId, { totalFindings: 0, healthScore: 100 });
+    const updated = setAuditSummary(auditId, {
+      totalFindings: 0,
+      healthScore: 100,
+    });
     expect(updated?.summary).toEqual({ totalFindings: 0, healthScore: 100 });
     expect(setAuditSummary('aud_unknown000000', { totalFindings: 0 })).toBeUndefined();
   });
@@ -624,7 +675,11 @@ describe('US-5 — POST /audits wires the real agent runner end-to-end', () => {
     return {
       providerName: 'stub-llm',
       async inspectSnippet(): Promise<LlmInspection> {
-        return { status: 'succeeded', providerUsed: 'stub-llm', finding: stubFinding };
+        return {
+          status: 'succeeded',
+          providerUsed: 'stub-llm',
+          finding: stubFinding,
+        };
       },
     };
   }
@@ -698,7 +753,12 @@ describe('US-5 — POST /audits wires the real agent runner end-to-end', () => {
     // Summary is generated by the runner and mirrored into the store (US5-AC1).
     const summary = audit.summary as Record<string, unknown>;
     expect(summary).toBeTruthy();
-    expect(summary.findings).toEqual({ LOW: 0, MEDIUM: 0, HIGH: 1, CRITICAL: 0 });
+    expect(summary.findings).toEqual({
+      LOW: 0,
+      MEDIUM: 0,
+      HIGH: 1,
+      CRITICAL: 0,
+    });
     expect(summary.filesAnalyzed).toBe(1);
     expect(summary.durationSeconds).toBeGreaterThanOrEqual(0);
   });
@@ -754,10 +814,9 @@ describe('US-5 — POST /audits wires the real agent runner end-to-end', () => {
       .map((line) => line.slice('data: '.length));
     expect(dataLines.length).toBeGreaterThan(0);
     for (const [index, data] of dataLines.entries()) {
-      expect(
-        validateSentinelEvent(JSON.parse(data) as never),
-        `frame ${index} must validate`,
-      ).toBe(true);
+      expect(validateSentinelEvent(JSON.parse(data) as never), `frame ${index} must validate`).toBe(
+        true,
+      );
     }
   });
 });

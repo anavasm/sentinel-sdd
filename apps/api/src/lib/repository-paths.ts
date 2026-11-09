@@ -17,7 +17,10 @@ export async function resolveAllowedRepoRoots(
   }
 
   const roots: string[] = [];
-  for (const configuredPath of rawValue.split(',').map((value) => value.trim()).filter(Boolean)) {
+  for (const configuredPath of rawValue
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean)) {
     if (!isAbsolute(configuredPath)) {
       continue;
     }
@@ -65,9 +68,7 @@ export function isPathWithinRoots(candidatePath: string, roots: readonly string[
     const relativePath = relative(root, candidatePath);
     return (
       relativePath === '' ||
-      (relativePath !== '..' &&
-        !relativePath.startsWith(`..${sep}`) &&
-        !isAbsolute(relativePath))
+      (relativePath !== '..' && !relativePath.startsWith(`..${sep}`) && !isAbsolute(relativePath))
     );
   });
 }

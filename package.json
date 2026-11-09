@@ -16,6 +16,7 @@
     "dev:host": "pnpm --filter @sentinel/mfe-shell dev"
   },
   "devDependencies": {
+    "prettier": "3.9.9",
     "turbo": "^2"
   }
 }

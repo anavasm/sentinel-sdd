@@ -4,11 +4,7 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type {
-  AuditConfig,
-  Finding,
-  SentinelAISSEEventContract,
-} from '@sentinel/contracts';
+import type { AuditConfig, Finding, SentinelAISSEEventContract } from '@sentinel/contracts';
 
 import type { LlmClient, LlmInspection, SnippetInspectionRequest } from '../src/agent/llm.js';
 import {
@@ -37,7 +33,11 @@ import { createAudit, findAuditById, resetAuditStore } from '../src/store/audits
 function repoUrlConfig(): AuditConfig {
   return {
     repoUrl: 'https://github.com/example/vulnerable-app.git',
-    ruleSets: { owaspTop10: true, testQuality: false, codeSmellsPerformance: true },
+    ruleSets: {
+      owaspTop10: true,
+      testQuality: false,
+      codeSmellsPerformance: true,
+    },
     severityThreshold: 'MEDIUM',
   };
 }
@@ -45,7 +45,11 @@ function repoUrlConfig(): AuditConfig {
 function localPathConfig(localPath: string): AuditConfig {
   return {
     localPath,
-    ruleSets: { owaspTop10: true, testQuality: false, codeSmellsPerformance: false },
+    ruleSets: {
+      owaspTop10: true,
+      testQuality: false,
+      codeSmellsPerformance: false,
+    },
     severityThreshold: 'LOW',
   };
 }
@@ -102,7 +106,11 @@ function sampleInspectionRequest(): SnippetInspectionRequest {
   return {
     filePath: 'src/auth/queries.ts',
     code: "db.query(`SELECT * FROM users WHERE id = '${id}'`);",
-    ruleSets: { owaspTop10: true, testQuality: false, codeSmellsPerformance: false },
+    ruleSets: {
+      owaspTop10: true,
+      testQuality: false,
+      codeSmellsPerformance: false,
+    },
     severityThreshold: 'LOW',
   };
 }
@@ -153,8 +161,14 @@ describe('US-5 — Agent Runner real implementation', () => {
   describe('happy path — full event pipeline and terminal summary (US5-AC1/AC4)', () => {
     it('emits schema-valid events in order and completes the audit', async () => {
       const files = [
-        { filePath: 'src/auth/queries.ts', content: 'const q = `SELECT ${id}`;' },
-        { filePath: 'src/utils/index.ts', content: 'export const add = (a, b) => a + b;' },
+        {
+          filePath: 'src/auth/queries.ts',
+          content: 'const q = `SELECT ${id}`;',
+        },
+        {
+          filePath: 'src/utils/index.ts',
+          content: 'export const add = (a, b) => a + b;',
+        },
       ];
       const runner = new SentinelAuditRunner({
         llmClient: stubLlm(null),
@@ -201,7 +215,9 @@ describe('US-5 — Agent Runner real implementation', () => {
       const finding = sqlInjectionFinding('src/auth/queries.ts');
       const runner = new SentinelAuditRunner({
         llmClient: stubLlm(finding),
-        repositoryReader: stubReader([{ filePath: 'src/auth/queries.ts', content: 'const q = 1;' }]),
+        repositoryReader: stubReader([
+          { filePath: 'src/auth/queries.ts', content: 'const q = 1;' },
+        ]),
       });
 
       const auditId = runAudit(runner, localPathConfig('/tmp/any-repo'));
@@ -220,7 +236,10 @@ describe('US-5 — Agent Runner real implementation', () => {
       const stored = findAuditById(auditId);
       expect(stored?.status).toBe('completed');
       expect(stored?.findings).toHaveLength(1);
-      expect(stored?.findings?.[0]).toMatchObject({ ruleId: 'owasp-a03-injection', severity: 'HIGH' });
+      expect(stored?.findings?.[0]).toMatchObject({
+        ruleId: 'owasp-a03-injection',
+        severity: 'HIGH',
+      });
     });
 
     it('generates a terminal summary with severity counts, health score, and duration', async () => {
@@ -240,7 +259,12 @@ describe('US-5 — Agent Runner real implementation', () => {
       expect(payload.status).toBe('completed');
       expect(payload.healthScore).toBe(85); // 100 − 15 (one HIGH)
       const summary = payload.summary as Record<string, unknown>;
-      expect(summary.findings).toEqual({ LOW: 0, MEDIUM: 0, HIGH: 1, CRITICAL: 0 });
+      expect(summary.findings).toEqual({
+        LOW: 0,
+        MEDIUM: 0,
+        HIGH: 1,
+        CRITICAL: 0,
+      });
       expect(summary.rulesEvaluated).toBe(2); // owaspTop10 + codeSmellsPerformance enabled
       expect(summary.filesAnalyzed).toBe(1);
       expect(summary.durationSeconds).toBeGreaterThanOrEqual(0);
@@ -386,8 +410,9 @@ describe('US-5 — Agent Runner real implementation', () => {
 
   describe('LLM parsing and provider adapters', () => {
     it('parses a JSON finding from an LLM reply (severity normalized)', () => {
-      const raw = 'Sure! {"ruleId":"owasp-a03","title":"SQLi","severity":"high","filePath":"a.ts",'
-        + '"description":"bad","beforeSnippet":"x","afterSnippet":"y"}';
+      const raw =
+        'Sure! {"ruleId":"owasp-a03","title":"SQLi","severity":"high","filePath":"a.ts",' +
+        '"description":"bad","beforeSnippet":"x","afterSnippet":"y"}';
 
       const finding = parseFindingFromLlmText(raw, 'LOW');
 
@@ -396,8 +421,9 @@ describe('US-5 — Agent Runner real implementation', () => {
     });
 
     it('drops findings below the configured severity threshold', () => {
-      const raw = '{"ruleId":"r","title":"t","severity":"LOW","filePath":"a.ts",'
-        + '"description":"d","beforeSnippet":"x","afterSnippet":"y"}';
+      const raw =
+        '{"ruleId":"r","title":"t","severity":"LOW","filePath":"a.ts",' +
+        '"description":"d","beforeSnippet":"x","afterSnippet":"y"}';
 
       expect(parseFindingFromLlmText(raw, 'MEDIUM')).toBeNull();
       expect(parseFindingFromLlmText(raw, 'LOW')?.severity).toBe('LOW');
@@ -412,12 +438,17 @@ describe('US-5 — Agent Runner real implementation', () => {
       const client = new HttpLlmClient({
         endpoint: 'https://llm.example/v1/complete',
         model: 'test-model',
-        fetchImpl: (async () => new Response('rate limited', { status: 429 })) as unknown as typeof fetch,
+        fetchImpl: (async () =>
+          new Response('rate limited', {
+            status: 429,
+          })) as unknown as typeof fetch,
       });
 
       const result = await client.inspectSnippet(sampleInspectionRequest());
 
-      expect(result.status, result.status === 'unavailable' ? result.detail : '').toBe('unavailable');
+      expect(result.status, result.status === 'unavailable' ? result.detail : '').toBe(
+        'unavailable',
+      );
       if (result.status === 'unavailable') {
         expect(result.detail).toContain('429');
       }
@@ -451,7 +482,9 @@ describe('US-5 — Agent Runner real implementation', () => {
 
       const result = await client.inspectSnippet(sampleInspectionRequest());
 
-      expect(result.status, result.status === 'unavailable' ? result.detail : '').toBe('unavailable');
+      expect(result.status, result.status === 'unavailable' ? result.detail : '').toBe(
+        'unavailable',
+      );
       expect(result.status === 'unavailable' ? result.detail : '').toContain('unreachable');
     });
   });
@@ -463,20 +496,34 @@ describe('US-5 — Agent Runner real implementation', () => {
 
     it('returns the primary result when the primary provider succeeds', async () => {
       const chain = new OllamaFallbackLlmClient({
-        primary: chainClient({ status: 'succeeded', providerUsed: 'primary', finding: null }, 'primary'),
-        fallback: chainClient({ status: 'unavailable', detail: 'fallback must not be called' }, 'fallback'),
+        primary: chainClient(
+          { status: 'succeeded', providerUsed: 'primary', finding: null },
+          'primary',
+        ),
+        fallback: chainClient(
+          { status: 'unavailable', detail: 'fallback must not be called' },
+          'fallback',
+        ),
       });
 
       const result = await chain.inspectSnippet(sampleInspectionRequest());
 
-      expect(result).toEqual({ status: 'succeeded', providerUsed: 'primary', finding: null });
+      expect(result).toEqual({
+        status: 'succeeded',
+        providerUsed: 'primary',
+        finding: null,
+      });
     });
 
     it('degrades to the Ollama fallback when the primary provider is unavailable', async () => {
       const chain = new OllamaFallbackLlmClient({
         primary: chainClient({ status: 'unavailable', detail: 'primary throttled' }, 'primary'),
         fallback: chainClient(
-          { status: 'succeeded', providerUsed: 'fallback', finding: sqlInjectionFinding('f.ts') },
+          {
+            status: 'succeeded',
+            providerUsed: 'fallback',
+            finding: sqlInjectionFinding('f.ts'),
+          },
           'fallback',
         ),
       });
@@ -499,9 +546,13 @@ describe('US-5 — Agent Runner real implementation', () => {
 
       const result = await chain.inspectSnippet(sampleInspectionRequest());
 
-      expect(result.status, result.status === 'unavailable' ? result.detail : '').toBe('unavailable');
+      expect(result.status, result.status === 'unavailable' ? result.detail : '').toBe(
+        'unavailable',
+      );
       expect(result.status === 'unavailable' ? result.detail : '').toContain('primary down');
-      expect(result.status === 'unavailable' ? result.detail : '').toContain('fallback failed: ollama down');
+      expect(result.status === 'unavailable' ? result.detail : '').toContain(
+        'fallback failed: ollama down',
+      );
     });
   });
 
@@ -533,9 +584,7 @@ describe('US-5 — Agent Runner real implementation', () => {
           (event.payload as Record<string, unknown>).status === 'degraded',
       );
       expect(degraded, 'a degraded TOOL_EXECUTION event must be emitted').toBeTruthy();
-      expect(
-        String((degraded?.payload as Record<string, unknown>).output),
-      ).toContain('ollama');
+      expect(String((degraded?.payload as Record<string, unknown>).output)).toContain('ollama');
 
       // Degradation never aborts the audit: findings + terminal completed.
       const terminal = events.at(-1);

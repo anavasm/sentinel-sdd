@@ -8,7 +8,11 @@ import { resolveAllowedLocalRepository } from '../lib/repository-paths.js';
 import { validateAuditConfig } from '../lib/validators.js';
 import { AUDIT_ID_PATTERN, createAudit, findAuditById } from '../store/audits.js';
 import { parseLastEventId, subscribeToAuditStream } from '../sse/hub.js';
-import { serializeSseFrame, serializeSseRetryHint, SSE_RESPONSE_HEADERS } from '../sse/serializer.js';
+import {
+  serializeSseFrame,
+  serializeSseRetryHint,
+  SSE_RESPONSE_HEADERS,
+} from '../sse/serializer.js';
 
 /**
  * `POST /api/v1/audits` controller (plan US-2, Task 2.3 + US-4 Task 4.5).
@@ -22,7 +26,10 @@ import { serializeSseFrame, serializeSseRetryHint, SSE_RESPONSE_HEADERS } from '
  */
 
 /** Ajv instancePath → openapi `errors[].field` (root-level errors map to 'body'). */
-function ajvErrorToDetail(instancePath: string, message: string): { field: string; message: string } {
+function ajvErrorToDetail(
+  instancePath: string,
+  message: string,
+): { field: string; message: string } {
   return {
     field: instancePath === '' ? 'body' : instancePath.replace(/^\//, ''),
     message,
@@ -52,7 +59,8 @@ export function createAuditHandler(runner: AuditRunner | null): RequestHandler {
         if (allowedRepository === undefined) {
           throw new ProblemError(
             buildProblem(400, ProblemType.VALIDATION_ERROR, {
-              detail: 'The local repository path is inaccessible or outside configured allowed roots.',
+              detail:
+                'The local repository path is inaccessible or outside configured allowed roots.',
               errors: [
                 {
                   field: 'localPath',
@@ -62,7 +70,10 @@ export function createAuditHandler(runner: AuditRunner | null): RequestHandler {
             }),
           );
         }
-        validatedConfig = { ...validatedConfig, localPath: allowedRepository.path };
+        validatedConfig = {
+          ...validatedConfig,
+          localPath: allowedRepository.path,
+        };
       }
 
       const audit = createAudit({ config: validatedConfig });
