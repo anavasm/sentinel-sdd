@@ -11,6 +11,7 @@ import {
   HttpLlmClient,
   LlmProviderError,
   OllamaFallbackLlmClient,
+  createDefaultLlmClient,
   parseFindingFromLlmText,
 } from '../src/agent/llm.js';
 import type { RepositoryReadResult, RepositoryReader } from '../src/agent/repo-reader.js';
@@ -486,6 +487,124 @@ describe('US-5 — Agent Runner real implementation', () => {
         'unavailable',
       );
       expect(result.status === 'unavailable' ? result.detail : '').toContain('unreachable');
+    });
+  });
+
+  describe('default LLM provider policy (ADR-008)', () => {
+    it('uses only local Ollama by default, ignoring remote endpoint settings', async () => {
+      const requestedUrls: string[] = [];
+      const fetchImpl = (async (input: string | URL) => {
+        requestedUrls.push(String(input));
+        return new Response(
+          JSON.stringify({ response: JSON.stringify(sqlInjectionFinding('source.ts')) }),
+          { status: 200 },
+        );
+      }) as typeof fetch;
+      const client = createDefaultLlmClient({
+        env: {
+          OLLAMA_URL: 'http://localhost:11434',
+          SENTINEL_LLM_ENDPOINT: 'https://remote-llm.example/v1/complete',
+          SENTINEL_LLM_MODEL: 'remote-model',
+        },
+        fetchImpl,
+      });
+
+      expect(client.providerName).toBe('ollama');
+      const result = await client.inspectSnippet(sampleInspectionRequest());
+
+      expect(result.status).toBe('succeeded');
+      expect(requestedUrls).toEqual(['http://localhost:11434/api/generate']);
+    });
+
+    it('rejects a non-loopback Ollama URL unless external access is explicitly enabled', () => {
+      expect(() =>
+        createDefaultLlmClient({ env: { OLLAMA_URL: 'http://192.168.1.20:11434' } }),
+      ).toThrow(/OLLAMA_URL must use a loopback host/);
+
+      const explicitlyEnabledClient = createDefaultLlmClient({
+        env: {
+          SENTINEL_ALLOW_EXTERNAL_LLM: 'true',
+          OLLAMA_URL: 'http://192.168.1.20:11434',
+        },
+      });
+      expect(explicitlyEnabledClient.providerName).toBe('ollama');
+    });
+
+    it('uses an explicitly enabled remote provider and falls back to local Ollama', async () => {
+      const requestedUrls: string[] = [];
+      const fetchImpl = (async (input: string | URL) => {
+        const requestUrl = String(input);
+        requestedUrls.push(requestUrl);
+        if (requestUrl === 'https://remote-llm.example/v1/complete') {
+          return new Response('unavailable', { status: 503 });
+        }
+        return new Response(
+          JSON.stringify({ response: JSON.stringify(sqlInjectionFinding('source.ts')) }),
+          { status: 200 },
+        );
+      }) as typeof fetch;
+      const client = createDefaultLlmClient({
+        env: {
+          SENTINEL_ALLOW_EXTERNAL_LLM: 'true',
+          SENTINEL_LLM_ENDPOINT: 'https://remote-llm.example/v1/complete',
+          SENTINEL_LLM_MODEL: 'remote-model',
+          OLLAMA_URL: 'http://localhost:11434',
+        },
+        fetchImpl,
+      });
+
+      expect(client.providerName).toBe('fallback-chain');
+      const result = await client.inspectSnippet(sampleInspectionRequest());
+
+      expect(result.status).toBe('degraded');
+      expect(requestedUrls).toEqual([
+        'https://remote-llm.example/v1/complete',
+        'http://localhost:11434/api/generate',
+      ]);
+    });
+
+    it('does not try a configured remote provider when local Ollama fails without opt-in', async () => {
+      const requestedUrls: string[] = [];
+      const fetchImpl = (async (input: string | URL) => {
+        requestedUrls.push(String(input));
+        return new Response('unavailable', { status: 503 });
+      }) as typeof fetch;
+      const client = createDefaultLlmClient({
+        env: {
+          OLLAMA_URL: 'http://localhost:11434',
+          SENTINEL_LLM_ENDPOINT: 'https://remote-llm.example/v1/complete',
+          SENTINEL_LLM_MODEL: 'remote-model',
+        },
+        fetchImpl,
+      });
+
+      const result = await client.inspectSnippet(sampleInspectionRequest());
+
+      expect(result.status).toBe('unavailable');
+      expect(requestedUrls).toEqual(['http://localhost:11434/api/generate']);
+    });
+
+    it('requires a model when an opted-in remote endpoint is configured', () => {
+      expect(() =>
+        createDefaultLlmClient({
+          env: {
+            SENTINEL_ALLOW_EXTERNAL_LLM: 'true',
+            SENTINEL_LLM_ENDPOINT: 'https://remote-llm.example/v1/complete',
+          },
+        }),
+      ).toThrow(/SENTINEL_LLM_MODEL is required/);
+    });
+
+    it('rejects embedded credentials in provider URLs', () => {
+      expect(() =>
+        createDefaultLlmClient({
+          env: {
+            SENTINEL_ALLOW_EXTERNAL_LLM: 'true',
+            SENTINEL_LLM_ENDPOINT: 'https://user:secret@remote-llm.example/v1/complete',
+            SENTINEL_LLM_MODEL: 'remote-model',
+          },
+        }),
+      ).toThrow(/must not contain embedded credentials/);
     });
   });
 

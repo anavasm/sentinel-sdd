@@ -99,7 +99,9 @@ Open `http://localhost:5173`. The frontend defaults to `http://localhost:3000/ap
 
 ### LLM Configuration
 
-The primary adapter reads `SENTINEL_LLM_ENDPOINT` and `SENTINEL_LLM_MODEL` and expects a compatible JSON completion endpoint. The fallback uses `OLLAMA_URL` (default `http://localhost:11434`) and model `llama3.2`.
+Local Ollama is the default provider. It uses `OLLAMA_URL` (default `http://localhost:11434`) and model `llama3.2`. A non-loopback `OLLAMA_URL` is rejected unless external LLM access is explicitly enabled.
+
+To enable a remote HTTP provider as the primary, set `SENTINEL_ALLOW_EXTERNAL_LLM=true`, `SENTINEL_LLM_ENDPOINT`, and `SENTINEL_LLM_MODEL`. The endpoint must be an absolute HTTP(S) URL without embedded credentials and return a compatible JSON completion response. When enabled, local Ollama remains the fallback. Without the opt-in flag, remote endpoint settings are ignored and only local Ollama is used.
 
 The API also supports `PORT` (default `3000`) and `ALLOWED_ORIGINS` (comma-separated browser origins; defaults to the three local MFE ports). The PoC has no authentication. Do not expose it to untrusted networks or audit source code you are not permitted to share with the configured model provider.
 

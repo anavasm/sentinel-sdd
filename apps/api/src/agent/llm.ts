@@ -1,13 +1,16 @@
+import { isIP } from 'node:net';
+
 import type { AuditConfig, Finding, Severity } from '@sentinel/contracts';
 
 /**
  * LLM abstraction layer (ASD §6.1, §5.6 — plan US-5 Task 5.1 / CONCERN-004).
  *
  * The Agent Runner is the only component allowed to call the LLM, always
- * through this module. `OllamaFallbackLlmClient` composes a primary free-tier
- * HTTP provider with a local Ollama fallback and classifies every failure as
- * an explicit result — provider problems degrade the audit (TOOL_EXECUTION
- * degraded/failed events, NFR-A3) instead of raising HTTP errors.
+ * through this module. Local Ollama is the default. A remote HTTP provider is
+ * constructed only when the server operator opts in with
+ * `SENTINEL_ALLOW_EXTERNAL_LLM=true`; its failures degrade to local Ollama.
+ * Provider problems are explicit results, surfaced as TOOL_EXECUTION events
+ * (NFR-A3) instead of HTTP errors.
  *
  * Tests inject stub `LlmClient`s (ASD §10.3); the HTTP adapters are never
  * exercised by the suite.
@@ -41,8 +44,17 @@ export class LlmProviderError extends Error {
  * every provider failed — the runner turns this into a terminal failure.
  */
 export type LlmInspection =
-  | { readonly status: 'succeeded'; readonly providerUsed: string; readonly finding: Finding | null }
-  | { readonly status: 'degraded'; readonly providerUsed: string; readonly finding: Finding | null; readonly detail: string }
+  | {
+      readonly status: 'succeeded';
+      readonly providerUsed: string;
+      readonly finding: Finding | null;
+    }
+  | {
+      readonly status: 'degraded';
+      readonly providerUsed: string;
+      readonly finding: Finding | null;
+      readonly detail: string;
+    }
   | { readonly status: 'unavailable'; readonly detail: string };
 
 /** Seam every LLM adapter implements (Dependency Inversion — ASD §6.3.2). */
@@ -110,13 +122,19 @@ export function parseFindingFromLlmText(
   for (const field of requiredFields) {
     const value = candidate[field];
     if (typeof value !== 'string' || value.trim() === '') {
-      throw new LlmProviderError('invalid-response', `LLM reply is missing required field '${field}'`);
+      throw new LlmProviderError(
+        'invalid-response',
+        `LLM reply is missing required field '${field}'`,
+      );
     }
   }
 
   const severity = String(candidate.severity).toUpperCase();
   if (!VALID_SEVERITIES.includes(severity as Severity)) {
-    throw new LlmProviderError('invalid-response', `LLM replied with invalid severity '${severity}'`);
+    throw new LlmProviderError(
+      'invalid-response',
+      `LLM replied with invalid severity '${severity}'`,
+    );
   }
   if (SEVERITY_RANK[severity as Severity] < SEVERITY_RANK[severityThreshold]) {
     return null; // Below the configured reporting threshold.
@@ -174,6 +192,9 @@ export interface HttpLlmClientOptions {
 }
 
 const DEFAULT_HTTP_TIMEOUT_MS = 30_000;
+const DEFAULT_OLLAMA_URL = 'http://localhost:11434';
+const DEFAULT_OLLAMA_MODEL = 'llama3.2';
+const ALLOW_EXTERNAL_LLM_ENV = 'SENTINEL_ALLOW_EXTERNAL_LLM';
 
 /**
  * Free-tier HTTP provider adapter (primary). POSTs the prompt and expects a
@@ -205,7 +226,10 @@ export class HttpLlmClient implements LlmClient {
       // Expected provider failure → result, never an exception (NFR-A3).
       return {
         status: 'unavailable',
-        detail: error instanceof LlmProviderError ? error.message : `LLM provider failed: ${String(error)}`,
+        detail:
+          error instanceof LlmProviderError
+            ? error.message
+            : `LLM provider failed: ${String(error)}`,
       };
     }
   }
@@ -243,16 +267,23 @@ export class HttpLlmClient implements LlmClient {
   }
 }
 
-/** Default local Ollama endpoint (CONCERN-004 fallback). */
-const DEFAULT_OLLAMA_URL = 'http://localhost:11434';
+/** Local Ollama adapter (`/api/generate`, non-streaming). */
+export type OllamaLlmClientOptions = Omit<HttpLlmClientOptions, 'endpoint' | 'model'> & {
+  readonly ollamaUrl?: string;
+};
 
-/** Local Ollama adapter (`/api/generate`, non-streaming); the fallback leg. */
 export class OllamaLlmClient extends HttpLlmClient {
   readonly providerName = 'ollama';
 
-  constructor(options: Omit<HttpLlmClientOptions, 'endpoint' | 'model'> = {}) {
-    const ollamaUrl = process.env.OLLAMA_URL ?? DEFAULT_OLLAMA_URL;
-    super({ ...options, endpoint: `${ollamaUrl}/api/generate`, model: 'llama3.2' });
+  constructor(options: OllamaLlmClientOptions = {}) {
+    const { ollamaUrl = process.env.OLLAMA_URL ?? DEFAULT_OLLAMA_URL, ...httpOptions } = options;
+    const baseUrl = parseHttpUrl(ollamaUrl, 'OLLAMA_URL');
+    const ollamaPath = baseUrl.pathname.replace(/\/+$/, '');
+    super({
+      ...httpOptions,
+      endpoint: `${baseUrl.origin}${ollamaPath}/api/generate`,
+      model: DEFAULT_OLLAMA_MODEL,
+    });
   }
 
   protected override async complete(prompt: string): Promise<string> {
@@ -268,6 +299,11 @@ export class OllamaLlmClient extends HttpLlmClient {
 export interface OllamaFallbackLlmClientOptions {
   readonly primary: LlmClient;
   readonly fallback: LlmClient;
+}
+
+export interface DefaultLlmClientOptions {
+  readonly env?: NodeJS.ProcessEnv;
+  readonly fetchImpl?: typeof fetch;
 }
 
 /**
@@ -305,12 +341,68 @@ export class OllamaFallbackLlmClient implements LlmClient {
   }
 }
 
-/** Production default: free-tier endpoint primary, local Ollama fallback. */
-export function createDefaultLlmClient(): LlmClient {
-  const endpoint = process.env.SENTINEL_LLM_ENDPOINT ?? 'https://api.free-tier-llm.example/v1/complete';
-  const model = process.env.SENTINEL_LLM_MODEL ?? 'gpt-4o-mini';
-  return new OllamaFallbackLlmClient({
-    primary: new HttpLlmClient({ endpoint, model }),
-    fallback: new OllamaLlmClient(),
+/** Local-only by default; remote primary access requires explicit operator opt-in. */
+export function createDefaultLlmClient(options: DefaultLlmClientOptions = {}): LlmClient {
+  const env = options.env ?? process.env;
+  const allowExternal = env[ALLOW_EXTERNAL_LLM_ENV] === 'true';
+  const ollamaUrl = env.OLLAMA_URL ?? DEFAULT_OLLAMA_URL;
+  const ollamaEndpoint = parseHttpUrl(ollamaUrl, 'OLLAMA_URL');
+
+  if (!allowExternal && !isLoopbackHost(ollamaEndpoint.hostname)) {
+    throw new Error('OLLAMA_URL must use a loopback host unless external LLM access is enabled.');
+  }
+
+  const fallback = new OllamaLlmClient({
+    ollamaUrl,
+    ...(options.fetchImpl !== undefined ? { fetchImpl: options.fetchImpl } : {}),
   });
+  const endpoint = env.SENTINEL_LLM_ENDPOINT?.trim();
+  if (!allowExternal || endpoint === undefined || endpoint === '') {
+    return fallback;
+  }
+
+  const model = env.SENTINEL_LLM_MODEL?.trim();
+  if (model === undefined || model === '') {
+    throw new Error('SENTINEL_LLM_MODEL is required when external LLM access is enabled.');
+  }
+
+  const remoteEndpoint = parseHttpUrl(endpoint, 'SENTINEL_LLM_ENDPOINT');
+  return new OllamaFallbackLlmClient({
+    primary: new HttpLlmClient({
+      endpoint: remoteEndpoint.href,
+      model,
+      ...(options.fetchImpl !== undefined ? { fetchImpl: options.fetchImpl } : {}),
+    }),
+    fallback,
+  });
+}
+
+function parseHttpUrl(value: string, settingName: string): URL {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error(`${settingName} must be an absolute HTTP or HTTPS URL.`);
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    throw new Error(`${settingName} must be an HTTP or HTTPS URL.`);
+  }
+  if (url.username !== '' || url.password !== '') {
+    throw new Error(`${settingName} must not contain embedded credentials.`);
+  }
+  return url;
+}
+
+function isLoopbackHost(hostname: string): boolean {
+  const normalizedHostname = hostname
+    .replace(/^\[|\]$/g, '')
+    .replace(/\.$/, '')
+    .toLowerCase();
+  if (normalizedHostname === 'localhost') {
+    return true;
+  }
+  if (isIP(normalizedHostname) === 4) {
+    return normalizedHostname.startsWith('127.');
+  }
+  return isIP(normalizedHostname) === 6 && normalizedHostname === '::1';
 }
