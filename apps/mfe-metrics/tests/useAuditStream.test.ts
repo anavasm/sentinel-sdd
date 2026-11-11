@@ -5,8 +5,8 @@
  * tests simulate the SSE stream deterministically and assert the hook's
  * status machine, event accumulation, and resource cleanup.
  */
-import { act, renderHook } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { act, renderHook, waitFor } from '@testing-library/react';
+import { describe, expect, it, vi, beforeEach } from 'vitest';
 import type {
   AgentThoughtEvent,
   SentinelAISSEEventContract,
@@ -61,17 +61,29 @@ function emitJson(event: SentinelAISSEEventContract): void {
   MockEventSource.lastInstance?.emit(event.type, JSON.stringify(event));
 }
 
+async function waitForConnection(): Promise<void> {
+  await waitFor(() => {
+    expect(MockEventSource.lastInstance).toBeDefined();
+  });
+}
+
 describe('useAuditStream', () => {
-  it('opens an EventSource against the audit stream endpoint', () => {
+  beforeEach(() => {
+    vi.mocked(fetch).mockClear();
+  });
+
+  it('opens an EventSource against the audit stream endpoint', async () => {
     renderHook(() => useAuditStream(AUDIT_ID));
+    await waitForConnection();
 
     expect(MockEventSource.lastInstance?.url).toBe(
       `http://localhost:3000/api/v1/audits/${AUDIT_ID}/stream`,
     );
   });
 
-  it('transitions from CONNECTING to CONNECTED when the stream opens', () => {
+  it('transitions from CONNECTING to CONNECTED when the stream opens', async () => {
     const { result } = renderHook(() => useAuditStream(AUDIT_ID));
+    await waitForConnection();
 
     expect(result.current.status).toBe('CONNECTING');
 
@@ -82,8 +94,9 @@ describe('useAuditStream', () => {
     expect(result.current.status).toBe('CONNECTED');
   });
 
-  it('accumulates incoming events in delivery order', () => {
+  it('accumulates incoming events in delivery order', async () => {
     const { result } = renderHook(() => useAuditStream(AUDIT_ID));
+    await waitForConnection();
 
     act(() => {
       emitJson(fixtureThought(1));
@@ -98,9 +111,10 @@ describe('useAuditStream', () => {
     expect(result.current.status).toBe('CONNECTED');
   });
 
-  it('discards malformed frames without breaking the stream', () => {
+  it('discards malformed frames without breaking the stream', async () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const { result } = renderHook(() => useAuditStream(AUDIT_ID));
+    await waitForConnection();
 
     act(() => {
       MockEventSource.lastInstance?.simulateOpen();
@@ -116,8 +130,9 @@ describe('useAuditStream', () => {
     errorSpy.mockRestore();
   });
 
-  it('sets DISCONNECTED and closes the EventSource on AUDIT_COMPLETED', () => {
+  it('sets DISCONNECTED and closes the EventSource on AUDIT_COMPLETED', async () => {
     const { result } = renderHook(() => useAuditStream(AUDIT_ID));
+    await waitForConnection();
     const eventSource = MockEventSource.lastInstance;
 
     act(() => {
@@ -130,8 +145,9 @@ describe('useAuditStream', () => {
     expect(eventSource?.readyState).toBe(2 /* CLOSED */);
   });
 
-  it('closes the EventSource on unmount', () => {
+  it('closes the EventSource on unmount', async () => {
     const { unmount } = renderHook(() => useAuditStream(AUDIT_ID));
+    await waitForConnection();
     const eventSource = MockEventSource.lastInstance;
 
     act(() => {
@@ -148,12 +164,13 @@ describe('useAuditStream', () => {
     expect(MockEventSource.instances).toHaveLength(0);
   });
 
-  it('reconnects from scratch when auditId changes', () => {
+  it('reconnects from scratch when auditId changes', async () => {
     const { result, rerender } = renderHook(
       ({ auditId: currentAuditId }: { auditId: string | undefined }) =>
         useAuditStream(currentAuditId),
       { initialProps: { auditId: AUDIT_ID } },
     );
+    await waitForConnection();
 
     act(() => {
       emitJson(fixtureThought(1));
@@ -162,8 +179,67 @@ describe('useAuditStream', () => {
 
     const previousSource = MockEventSource.instances[0];
     expect(previousSource?.close).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(MockEventSource.instances).toHaveLength(2));
     expect(MockEventSource.instances).toHaveLength(2);
     expect(result.current.events).toHaveLength(0);
     expect(result.current.status).toBe('CONNECTING');
+  });
+
+  it('deduplicates replayed IDs, sorts out-of-order events, and reports a gap', async () => {
+    const { result } = renderHook(() => useAuditStream(AUDIT_ID));
+    await waitForConnection();
+
+    act(() => {
+      emitJson(fixtureThought(2));
+      emitJson(fixtureThought(1));
+      emitJson(fixtureThought(2));
+    });
+
+    expect(result.current.events.map((event) => event.id)).toEqual([1, 2]);
+    expect(result.current.gapDetected).toBe(true);
+  });
+
+  it('rejects event identity mismatches and keeps the accepted stream unchanged', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { result } = renderHook(() => useAuditStream(AUDIT_ID));
+    await waitForConnection();
+
+    act(() => {
+      MockEventSource.lastInstance?.simulateOpen();
+      MockEventSource.lastInstance?.emit(
+        'AGENT_THOUGHT',
+        JSON.stringify({ ...fixtureThought(1), auditId: 'aud_other' }),
+      );
+    });
+
+    expect(result.current.events).toEqual([]);
+    expect(errorSpy).toHaveBeenCalledWith('Discarding invalid or inconsistent SSE frame');
+    errorSpy.mockRestore();
+  });
+
+  it('treats a pre-stream 404 as terminal and does not open EventSource', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(new Response('{}', { status: 404 }));
+    const { result } = renderHook(() => useAuditStream(AUDIT_ID));
+
+    await waitFor(() => expect(result.current.status).toBe('NOT_FOUND'));
+    expect(MockEventSource.instances).toHaveLength(0);
+  });
+
+  it('reconciles findings from a terminal snapshot when no events can be replayed', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(new Response(JSON.stringify({
+      auditId: AUDIT_ID,
+      status: 'completed',
+      config: { localPath: '/tmp/repo' },
+      createdAt: '2026-09-23T10:00:00.000Z',
+      findings: [{ ...fixtureFinding(7).payload, eventId: 7 }],
+      lastEventId: 7,
+      firstAvailableEventId: 7,
+      summary: { healthScore: 80 },
+    }), { status: 200 }));
+    const { result } = renderHook(() => useAuditStream(AUDIT_ID));
+
+    await waitFor(() => expect(result.current.status).toBe('DISCONNECTED'));
+    expect(result.current.snapshot?.findings).toHaveLength(1);
+    expect(MockEventSource.instances).toHaveLength(0);
   });
 });

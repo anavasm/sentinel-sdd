@@ -6,6 +6,7 @@
  */
 import type { JSX } from 'react';
 import type { SentinelAISSEEventContract } from '@sentinel/contracts';
+import type { Audit } from '@sentinel/contracts';
 import type { AuditStreamStatus } from '../hooks/useAuditStream';
 import {
   countFindingsBySeverity,
@@ -19,21 +20,28 @@ export interface AuditSummaryHeaderProps {
   readonly auditId: string | undefined;
   readonly status: AuditStreamStatus;
   readonly events: readonly SentinelAISSEEventContract[];
+  readonly snapshot?: Audit | undefined;
+  readonly gapDetected?: boolean;
 }
 
 export function AuditSummaryHeader({
   auditId,
   status,
   events,
+  snapshot,
+  gapDetected = false,
 }: AuditSummaryHeaderProps): JSX.Element {
   const statusBadge = STREAM_STATUS_BADGE[status];
   const severityCounters = orderedSeverityCounters(
-    countFindingsBySeverity(extractFindings(events)),
+    countFindingsBySeverity(extractFindings(events, snapshot?.findings)),
   );
   const completedEvent = findCompletedEvent(events);
-  const healthScore = completedEvent?.payload.healthScore;
+  const healthScore = completedEvent?.payload.healthScore
+    ?? (typeof snapshot?.summary?.healthScore === 'number' ? snapshot.summary.healthScore : undefined);
   const failedReason =
-    completedEvent?.payload.status === 'failed' ? completedEvent.payload.error : undefined;
+    completedEvent?.payload.status === 'failed'
+      ? completedEvent.payload.error
+      : (typeof snapshot?.summary?.error === 'string' ? snapshot.summary.error : undefined);
 
   return (
     <header className="rounded-lg border border-slate-700 bg-sentinel-panel p-6">
@@ -86,6 +94,16 @@ export function AuditSummaryHeader({
       {failedReason !== undefined && (
         <p role="alert" className="mt-4 rounded border border-red-500/50 bg-red-500/10 p-3 text-sm text-red-300">
           Audit failed: {failedReason}
+        </p>
+      )}
+      {gapDetected && (
+        <p role="status" className="mt-4 rounded border border-amber-500/50 bg-amber-500/10 p-3 text-sm text-amber-300">
+          Some earlier events are unavailable; current findings and audit status were recovered from the audit snapshot.
+        </p>
+      )}
+      {status === 'NOT_FOUND' && (
+        <p role="alert" className="mt-4 rounded border border-red-500/50 bg-red-500/10 p-3 text-sm text-red-300">
+          This audit was not found and will not be retried.
         </p>
       )}
     </header>

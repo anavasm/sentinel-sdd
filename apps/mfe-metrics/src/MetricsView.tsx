@@ -7,7 +7,7 @@
 import { useState, type JSX } from 'react';
 import { useParams } from 'react-router-dom';
 import type { SentinelAISSEEventContract } from '@sentinel/contracts';
-import { useAuditStream } from './hooks/useAuditStream';
+import { snapshotFindings, useAuditStream } from './hooks/useAuditStream';
 import { AuditSummaryHeader } from './components/AuditSummaryHeader';
 import { EventTimeline } from './components/EventTimeline';
 import { FindingsList } from './components/FindingsList';
@@ -47,15 +47,21 @@ function AllEventsPanel({
 
 export function MetricsView(): JSX.Element {
   const { auditId } = useParams<{ auditId: string }>();
-  const { events, status } = useAuditStream(auditId);
+  const { events, status, snapshot, gapDetected } = useAuditStream(auditId);
   const [selectedTab, setSelectedTab] = useState<DashboardTab>('Timeline');
 
-  const findings = extractFindings(events);
+  const findings = extractFindings(events, snapshotFindings(snapshot));
   const timelineEvents = extractTimelineEvents(events);
 
   return (
     <section aria-label="Audit execution metrics">
-      <AuditSummaryHeader auditId={auditId} status={status} events={events} />
+      <AuditSummaryHeader
+        auditId={auditId}
+        status={status}
+        events={events}
+        snapshot={snapshot}
+        gapDetected={gapDetected}
+      />
       <p className="mt-4 text-sm text-slate-300">
         LLM-assisted review is limited to eligible files and snippets, may miss issues or report
         false positives, and does not measure test coverage or performance. Check the timeline for

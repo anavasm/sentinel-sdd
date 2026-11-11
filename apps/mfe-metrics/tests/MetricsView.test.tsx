@@ -3,7 +3,7 @@
  * timeline and findings while the SSE stream transitions
  * CONNECTING → thoughts → findings → AUDIT_COMPLETED.
  */
-import { act, render, screen, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { describe, expect, it } from 'vitest';
 import { MetricsView } from '../src/MetricsView';
@@ -29,6 +29,12 @@ function renderMetricsView(auditPath: string): void {
   );
 }
 
+async function waitForConnection(): Promise<void> {
+  await waitFor(() => {
+    expect(MockEventSource.lastInstance).toBeDefined();
+  });
+}
+
 describe('mfe-metrics MetricsView', () => {
   it('mounts with the summary header and Timeline tab active by default', () => {
     renderMetricsView(`/audits/${AUDIT_ID}`);
@@ -40,8 +46,9 @@ describe('mfe-metrics MetricsView', () => {
     expect(screen.getByText(/does not measure test coverage or performance/i)).toBeInTheDocument();
   });
 
-  it('streams thoughts into the timeline as they arrive', () => {
+  it('streams thoughts into the timeline as they arrive', async () => {
     renderMetricsView(`/audits/${AUDIT_ID}`);
+    await waitForConnection();
 
     act(() => {
       emitStreamEvent(thoughtEvent(1, 'Planning the audit', 'clone'));
@@ -53,8 +60,9 @@ describe('mfe-metrics MetricsView', () => {
     expect(screen.getByText('Planning the audit')).toBeInTheDocument();
   });
 
-  it('shows findings under the Findings tab with severity badges', () => {
+  it('shows findings under the Findings tab with severity badges', async () => {
     renderMetricsView(`/audits/${AUDIT_ID}`);
+    await waitForConnection();
 
     act(() => {
       emitStreamEvent(findingEvent(1, 'HIGH'));
@@ -71,8 +79,9 @@ describe('mfe-metrics MetricsView', () => {
     expect(screen.getByTestId('findings-counter-HIGH')).toHaveTextContent('1 HIGH');
   });
 
-  it('renders every event type in the All Events tab', () => {
+  it('renders every event type in the All Events tab', async () => {
     renderMetricsView(`/audits/${AUDIT_ID}`);
+    await waitForConnection();
 
     act(() => {
       emitStreamEvent(thoughtEvent(1));
@@ -88,8 +97,9 @@ describe('mfe-metrics MetricsView', () => {
     expect(within(allEventsPanel).getByText('VULNERABILITY_FOUND')).toBeInTheDocument();
   });
 
-  it('completes the stream: badge → Completed, health score visible', () => {
+  it('completes the stream: badge → Completed, health score visible', async () => {
     renderMetricsView(`/audits/${AUDIT_ID}`);
+    await waitForConnection();
 
     act(() => {
       emitStreamEvent(findingEvent(1, 'MEDIUM'));
@@ -101,8 +111,9 @@ describe('mfe-metrics MetricsView', () => {
     expect(screen.getByText(/see the\s*Findings tab/i)).toBeInTheDocument();
   });
 
-  it('shows the connection error badge on transport failure', () => {
+  it('shows the connection error badge on transport failure', async () => {
     renderMetricsView(`/audits/${AUDIT_ID}`);
+    await waitForConnection();
 
     act(() => {
       MockEventSource.lastInstance?.simulateError();
@@ -111,8 +122,9 @@ describe('mfe-metrics MetricsView', () => {
     expect(screen.getByTestId('stream-status-badge')).toHaveTextContent('Connection error');
   });
 
-  it('shows the failed-audit alert when the audit completes with failure', () => {
+  it('shows the failed-audit alert when the audit completes with failure', async () => {
     renderMetricsView(`/audits/${AUDIT_ID}`);
+    await waitForConnection();
 
     act(() => {
       emitStreamEvent(completedEvent(1, 'failed'));

@@ -14,15 +14,30 @@ import type {
   ToolExecutionEvent,
   VulnerabilityFoundEvent,
 } from '@sentinel/contracts';
+import type { AuditFinding } from '@sentinel/contracts';
 import type { Severity } from '@sentinel/contracts';
 
 const SEVERITY_ORDER: readonly Severity[] = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'];
 
 /** Extracts `VULNERABILITY_FOUND` payloads, in arrival order. */
-export function extractFindings(events: readonly SentinelAISSEEventContract[]): Finding[] {
-  return events
+export function extractFindings(
+  events: readonly SentinelAISSEEventContract[],
+  snapshotFindings: readonly AuditFinding[] = [],
+): Finding[] {
+  const streamed = events
     .filter((event): event is VulnerabilityFoundEvent => event.type === 'VULNERABILITY_FOUND')
     .map((event) => event.payload);
+  const streamedIds = new Set(
+    events
+      .filter((event): event is VulnerabilityFoundEvent => event.type === 'VULNERABILITY_FOUND')
+      .map((event) => event.id),
+  );
+  return [
+    ...snapshotFindings
+      .filter((finding) => !streamedIds.has(finding.eventId))
+      .map(({ eventId: _eventId, ...finding }) => finding),
+    ...streamed,
+  ];
 }
 
 /** Extracts `AGENT_THOUGHT` and `TOOL_EXECUTION` events, in arrival order. */

@@ -65,7 +65,16 @@ export class MockEventSource {
       throw new Error(`Cannot emit '${eventType}' — EventSource for ${this.url} is closed`);
     }
     for (const listener of this.listeners.get(eventType) ?? []) {
-      listener(new MessageEvent(eventType, { data }));
+      let parsed: { id?: number } = {};
+      try {
+        parsed = JSON.parse(data) as { id?: number };
+      } catch {
+        // Keep malformed payloads deliverable so the hook can reject them.
+      }
+      listener(new MessageEvent(eventType, {
+        data,
+        lastEventId: parsed.id === undefined ? '' : String(parsed.id),
+      }));
     }
   }
 

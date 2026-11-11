@@ -36,4 +36,5 @@ export const STREAM_STATUS_BADGE: Readonly<Record<AuditStreamStatus, BadgeStyle>
   CONNECTED: { label: 'Live stream active', className: 'bg-emerald-600/20 text-emerald-400' },
   DISCONNECTED: { label: 'Completed', className: 'bg-sky-600/20 text-sky-300' },
   ERROR: { label: 'Connection error', className: 'bg-amber-600/20 text-amber-300' },
+  NOT_FOUND: { label: 'Audit not found', className: 'bg-red-600/20 text-red-300' },
 };

@@ -12,7 +12,7 @@
 `mfe-metrics` must render every SSE event within the 500ms budget (NFR-P1), strictly in order (NFR-A2), while remaining correct across reconnects. The backend contract is already fixed (ADR-001):
 
 - Frames are `id: <n>` / `event: <type>` / `data: <JSON>` + blank line, with `retry: 5000` on connect; the envelope `id` is a monotonic per-audit sequence starting at 1 (D-6).
-- The server buffers the last 1000 events per audit, replays retained events whose IDs are greater than the `Last-Event-ID` cursor, and closes the connection after the terminal `AUDIT_COMPLETED` (D-API-6). `GET /audits/{id}` exposes `firstAvailableEventId` and `lastEventId`; clients can detect an expired cursor and reconcile the current snapshot even if no subsequent SSE event arrives.
+- The server buffers the last 1000 events per audit, replays retained events whose IDs are greater than the `Last-Event-ID` cursor, and closes the connection after the terminal `AUDIT_COMPLETED` (D-API-6). `GET /audits/{id}` exposes `firstAvailableEventId` and `lastEventId`; clients can detect an expired cursor and reconcile the current snapshot even if no subsequent SSE event arrives. The implemented hook performs this GET before opening the stream and repeats it after transport errors.
 - Unknown audits yield a 404 Problem **before** any stream header (D-3); a client that blindly retries would loop forever against a dead session.
 
 Client-side alternatives considered:
@@ -28,10 +28,10 @@ Client-side alternatives considered:
 1. **REST server state → TanStack Query:** `POST /audits` (mutation in `mfe-config`), `GET /audits/{id}` (query in `mfe-metrics`, used for reconciliation), Problem parsing from the shared API client.
 2. **Stream state → `useAgentStream(auditId)` custom hook, local to `mfe-metrics`, over native `EventSource`:**
 
-   - **Connection lifecycle:** `streamStatus ∈ { connecting, open, resyncing, closed, error }`, driven by `onopen`/`onerror`; the server's `retry: 5000` hint governs browser auto-reconnect.
+   - **Connection lifecycle:** `streamStatus ∈ { connecting, open, closed, error, not-found }`, driven by `onopen`/`onerror` and REST reconciliation; a 404 closes the stream permanently while recoverable failures remain visible. The server's `retry: 5000` hint governs browser auto-reconnect.
    - **Dedup + ordering:** an append-only reducer keyed by envelope `id` — duplicate ids are dropped; a replayed batch (after reconnect) is merged without duplicating already-rendered events; out-of-order arrivals are buffered and sorted by `id`; the already-rendered live tail is never re-ordered.
    - **Resync:** automatic reconnection rides on the browser's native `Last-Event-ID` header (the server resumes strictly after it — ADR-001). On a manual/terminal-error reconnect the hook re-subscribes fresh; if the previous cursor is older than the server's buffer (gap detection: first replayed id > lastSeenId + 1), the hook reconciles findings via `GET /audits/{id}` and surfaces a "some early events may be missing" banner.
-   - **Client-side contract gate:** every `data:` payload is validated against `specs/events-schema.json` via the shared validators (ADR-007) — dev mode throws loudly; production discards, logs, and counts anomalies. Invalid frames are never rendered.
+   - **Client-side contract gate:** every `data:` payload is validated by a browser-compatible structural runtime validator before rendering; malformed JSON, payloads, IDs, audit scope, event names, and native `lastEventId` mismatches are discarded and logged without payload contents.
    - **Terminal awareness:** `AUDIT_COMPLETED` (either status) sets `closed` and **cancels reconnection** — the server closes the socket itself (D-API-6), so a reconnect loop would hammer a dead session. Scope guard: events whose envelope `auditId` ≠ route param are discarded (NFR-S3).
 
 ### Code references (planned placement — no code written yet; backend references are live)
