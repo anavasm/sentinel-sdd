@@ -28,13 +28,13 @@ The `@sentinel/contracts` package already ships the Ajv validator compiled from 
 3. **Owns the monotonic sequence id** starting at 1 (D-6).
 4. **Validates the complete envelope** with the shared Ajv validator before buffering or fan-out — *no contract-violating frame ever reaches the wire*.
 5. **Treats a validation failure as a programming error:** it is logged loudly (`console.error` with the Ajv error list) and replaced by a terminal `AUDIT_COMPLETED { status: 'failed' }` so no stream is ever left open (NFR-A3) — the subscriber never sees an invalid frame, and never sees a hung connection either.
-6. **Buffers and fans out** to any number of concurrent subscribers, each with its own cursor, writing each frame immediately (NFR-P1 — flush per event, never batched).
+6. **Updates the snapshot and replay-window metadata synchronously**, before buffering/fan-out; then it buffers and fans out to concurrent subscribers, writing each frame immediately (NFR-P1 — flush per event, never batched).
 
 ### Code references (`@sentinel/api`)
 
 | Concern | Location |
 |---|---|
-| Single emission entry point (validate → state → buffer → fan out) | `src/sse/hub.ts` — `emitAuditEvent()` (documented as "validator of record per ASD §6.1") |
+| Single emission entry point (validate → snapshot/buffer → fan out) | `src/sse/hub.ts` — `emitAuditEvent()` (documented as "validator of record per ASD §6.1") |
 | Shared Ajv validator compiled from `/specs`, never restated | `src/lib/validators.ts` — `validateSentinelEvent` (imports `specs/events-schema.json`; documented "hub is the validator of record (ASD §6.1)") |
 | Contract-violating event → loud log + terminal failed event | `src/sse/hub.ts` — `emitAuditEvent()` rejection branch → `emitTerminalFailure()` |
 | Validation-before-buffer ordering | `src/sse/hub.ts` — `emitAuditEvent()` (`validateSentinelEvent(envelope)` precedes `channel.buffer.push(envelope)` and `fanOut()`) |
@@ -48,7 +48,7 @@ The `@sentinel/contracts` package already ships the Ajv validator compiled from 
 
 - **Contract enforcement is structural, not conventional:** one choke point means one audit point; no producer can bypass validation without deliberately circumventing the hub.
 - **DRY:** one Ajv compile, one error-formatting rule, one id-assignment rule, shared with the contracts gate (`packages/contracts/src/validate.ts` compiles the same schema).
-- **State and stream cannot drift:** because state transitions (`src/store/audits.ts` — `transitionAuditStatus`, `appendFindings`, `setAuditSummary`) are driven by the *same validated emission* that fans out, `GET /audits/{id}` always reflects exactly what the stream delivered.
+- **State and stream cannot drift:** each validated emission updates `GET /audits/{id}` synchronously with its monotonic watermark before fan-out. Findings retain their source event IDs, and terminal summary data survives replay-buffer eviction; timeline gaps are exposed through `firstAvailableEventId` rather than hidden.
 - **Open/Closed:** new producers (cron replays, future audit engines) only need to call `emitAuditEvent`; they inherit validation, sequencing, buffering, and fan-out.
 
 ### Cons

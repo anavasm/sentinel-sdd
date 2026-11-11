@@ -168,6 +168,8 @@ export const auditRunningResponse: Audit = {
   },
   createdAt: '2026-09-23T10:00:00.000Z',
   findings: [],
+  lastEventId: 4,
+  firstAvailableEventId: 1,
 };
 
 export const auditCompletedResponse: Audit = {
@@ -179,7 +181,13 @@ export const auditCompletedResponse: Audit = {
     severityThreshold: 'MEDIUM',
   },
   createdAt: '2026-09-23T10:00:00.000Z',
-  findings: [vulnerabilityFoundEvent.payload],
+  findings: [{ ...vulnerabilityFoundEvent.payload, eventId: vulnerabilityFoundEvent.id }],
+  lastEventId: happyPathAuditSequence.at(-1)?.id ?? 0,
+  firstAvailableEventId: happyPathAuditSequence.at(0)?.id ?? null,
+  summary: {
+    ...auditCompletedEvent.payload.summary,
+    healthScore: auditCompletedEvent.payload.healthScore,
+  },
 };
 
 /* ── RFC 9457 Problem Details error fixtures ───────────────────────────────── */

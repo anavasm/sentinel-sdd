@@ -277,7 +277,7 @@ describe('US-5 — Agent Runner real implementation', () => {
 
       // The hub mirrored the event summary into the store (GET semantics).
       const audit = findAuditById(auditId);
-      expect(audit?.summary).toEqual(summary);
+      expect(audit?.summary).toEqual({ ...summary, healthScore: payload.healthScore });
     });
 
     it('scores health 100 and reports zero findings when the LLM finds nothing', async () => {

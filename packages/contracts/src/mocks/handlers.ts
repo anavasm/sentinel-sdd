@@ -12,11 +12,13 @@ import { http, HttpResponse, type HttpHandler } from 'msw';
 import {
   allEventFixtures,
   SAMPLE_AUDIT_ID,
+  auditFailedEvent,
   auditCompletedResponse,
   auditCreatedResponse,
   happyPathAuditSequence,
   notFoundProblem,
   validationErrorProblem,
+  vulnerabilityFoundEvent,
 } from '../fixtures/events.ts';
 import type { Audit } from '../index.ts';
 
@@ -37,7 +39,10 @@ const auditFailedResponse: Audit = {
     severityThreshold: 'MEDIUM',
   },
   createdAt: '2026-09-23T10:00:00.000Z',
-  findings: [],
+  findings: [{ ...vulnerabilityFoundEvent.payload, eventId: vulnerabilityFoundEvent.id }],
+  lastEventId: allEventFixtures.at(-1)?.id ?? 0,
+  firstAvailableEventId: allEventFixtures.at(0)?.id ?? null,
+  summary: { error: auditFailedEvent.payload.error },
 };
 
 /**
@@ -76,7 +81,9 @@ export function buildSseResponse(
  */
 export function createAuditHandlers(scenario: MockScenario = 'happy-path'): HttpHandler[] {
   const auditResource: Audit = scenario === 'failed-audit' ? auditFailedResponse : auditCompletedResponse;
-  const streamEvents = scenario === 'failed-audit' ? [...allEventFixtures] : happyPathAuditSequence;
+  const streamEvents = scenario === 'failed-audit'
+    ? [...allEventFixtures.slice(0, -1), auditFailedEvent]
+    : happyPathAuditSequence;
 
   return [
     // POST /api/v1/audits — rejects a missing repo source or a rule set with

@@ -35,6 +35,8 @@ export type Audit = components['schemas']['Audit'];
 export type AuditCreated = components['schemas']['AuditCreated'];
 /** One actionable finding with Before/After snippets. */
 export type Finding = components['schemas']['Finding'];
+/** Finding included in an audit snapshot, identified by its SSE event ID. */
+export type AuditFinding = components['schemas']['AuditFinding'];
 /** Severity levels used for thresholds and findings. */
 export type Severity = components['schemas']['Severity'];
 /** Audit lifecycle state. */

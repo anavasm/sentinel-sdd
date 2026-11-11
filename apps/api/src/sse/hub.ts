@@ -2,10 +2,8 @@ import type { SentinelAISSEEventContract } from '@sentinel/contracts';
 
 import { validateSentinelEvent } from '../lib/validators.js';
 import {
-  appendFindings,
   findAuditById,
-  setAuditSummary,
-  transitionAuditStatus,
+  recordAuditEvent,
 } from '../store/audits.js';
 
 /**
@@ -17,9 +15,8 @@ import {
  *    buffered or fanned out — a contract-violating event is a programming
  *    error: it is logged loudly and replaced by a terminal AUDIT_COMPLETED
  *    `failed` event so no stream is ever left open (NFR-A3);
- *  - drives session state on emission (US-3 store): `queued → running` on
- *    the first event, findings accumulation on VULNERABILITY_FOUND, and the
- *    terminal transition + summary on AUDIT_COMPLETED;
+ *  - drives the audit snapshot and replay watermark synchronously from each
+ *    validated event before fan-out;
  *  - buffers the last MAX_BUFFERED_EVENTS events per audit (D-API-4) for
  *    replay and Last-Event-ID resync;
  *  - fans out to any number of concurrent subscribers (each with its own
@@ -76,19 +73,6 @@ export function parseLastEventId(headerValue: string | undefined): number | unde
   return parsed;
 }
 
-/** Cursor to resume from for a given header value (defensive, plan §3.2). */
-function resumeCursorFor(lastEventId: number | undefined, bufferedCount: number): number {
-  // Missing header → full replay from the start of the buffer.
-  if (lastEventId === undefined) {
-    return 0;
-  }
-  // Non-numeric / beyond-buffer ids resume from the end of the buffer.
-  if (lastEventId >= bufferedCount) {
-    return bufferedCount;
-  }
-  return lastEventId;
-}
-
 /**
  * Emits an event into the audit channel: assigns the monotonic sequence id,
  * validates against specs/events-schema.json, drives session state, buffers
@@ -112,15 +96,10 @@ export function emitAuditEvent(
     return undefined;
   }
 
-  // Session state driven by emission (US-3 semantics).
-  if (audit.status === 'queued') {
-    transitionAuditStatus(auditId, 'running');
-  }
-
-  // D-6: the hub owns the monotonic per-audit sequence, starting at 1.
+  // D-6: the snapshot watermark owns the monotonic sequence, even after
+  // replay-buffer eviction.
   const channel = getChannel(auditId);
-  const lastBufferedId = channel.buffer.length > 0 ? channel.buffer.at(-1)?.id ?? 0 : 0;
-  const sequenceId = lastBufferedId + 1;
+  const sequenceId = audit.lastEventId + 1;
   const envelope: SentinelAISSEEventContract = {
     ...event,
     id: sequenceId,
@@ -138,22 +117,15 @@ export function emitAuditEvent(
     return emitTerminalFailure(auditId, sequenceId);
   }
 
-  if (envelope.type === 'VULNERABILITY_FOUND') {
-    appendFindings(auditId, [envelope.payload]);
-  }
-  if (envelope.type === 'AUDIT_COMPLETED') {
-    const nextStatus = envelope.payload.status === 'failed' ? 'failed' : 'completed';
-    transitionAuditStatus(auditId, nextStatus);
-    const summary = envelope.payload.summary;
-    if (summary !== undefined) {
-      setAuditSummary(auditId, summary);
-    }
-  }
-
   channel.buffer.push(envelope);
   if (channel.buffer.length > MAX_BUFFERED_EVENTS) {
     channel.buffer.shift();
   }
+  const firstAvailableEventId = channel.buffer.at(0)?.id;
+  if (firstAvailableEventId === undefined) {
+    throw new Error(`SSE buffer unexpectedly empty after emitting audit event ${auditId}.`);
+  }
+  recordAuditEvent(auditId, envelope, firstAvailableEventId);
 
   fanOut(channel, envelope);
 
@@ -186,12 +158,16 @@ function emitTerminalFailure(auditId: string, sequenceId: number): SentinelAISSE
     auditId,
     payload: { status: 'failed', error: 'Internal event validation failed; audit aborted.' },
   };
-  transitionAuditStatus(auditId, 'failed');
   const channel = getChannel(auditId);
   channel.buffer.push(failedEvent);
   if (channel.buffer.length > MAX_BUFFERED_EVENTS) {
     channel.buffer.shift();
   }
+  const firstAvailableEventId = channel.buffer.at(0)?.id;
+  if (firstAvailableEventId === undefined) {
+    throw new Error(`SSE buffer unexpectedly empty after failing audit ${auditId}.`);
+  }
+  recordAuditEvent(auditId, failedEvent, firstAvailableEventId);
   fanOut(channel, failedEvent);
   closeAllSubscribers(channel);
   return failedEvent;
@@ -205,7 +181,8 @@ export interface SubscribeResult {
 /**
  * Subscribes a connection to an audit's ordered event stream.
  *
- * Replays buffered events strictly after `lastEventId` (resync, D-6), then
+ * Replays retained events whose IDs are strictly greater than `lastEventId`
+ * (resync, D-6), then
  * delivers live emissions. When the audit is already terminal the replay
  * ends with the buffered terminal AUDIT_COMPLETED event and the subscriber
  * is closed (D-API-6) — replay-then-close.
@@ -240,8 +217,11 @@ export function subscribeToAuditStream(
 
   // Replay from the resync cursor, then keep the subscription for live events.
   const buffered = [...channel.buffer];
-  const cursor = resumeCursorFor(options.lastEventId, buffered.length);
-  for (const event of buffered.slice(cursor)) {
+  const lastEventId = options.lastEventId;
+  const replay = lastEventId === undefined
+    ? buffered
+    : buffered.filter((event) => event.id > lastEventId);
+  for (const event of replay) {
     handlers.onEvent(event);
   }
 

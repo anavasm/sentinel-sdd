@@ -348,6 +348,15 @@ describe('US-4 — GET /api/v1/audits/:auditId/stream', () => {
       for (const frame of frames) {
         expect(validateAgainstSpec(frame.data)).toBe(true);
       }
+
+      const snapshot = await request(server).get(`${API_V1}/audits/${auditId}`);
+      expect(snapshot.status).toBe(200);
+      expect(snapshot.body).toMatchObject({
+        status: 'failed',
+        lastEventId: 4,
+        firstAvailableEventId: 1,
+        summary: { error: terminal?.data.payload.error },
+      });
     });
   });
 
@@ -410,6 +419,108 @@ describe('US-4 — GET /api/v1/audits/:auditId/stream', () => {
         onClose: () => {},
       });
       expect(delivered.map((event) => event.type)).toEqual(['AUDIT_COMPLETED']);
+    });
+
+    it('keeps event IDs and REST snapshot consistent after replay-buffer eviction', async () => {
+      const auditId = seedAudit();
+      const finding = emitAuditEvent(auditId, {
+        type: 'VULNERABILITY_FOUND',
+        timestamp: '2026-09-23T10:00:00.000Z',
+        auditId,
+        payload: {
+          ruleId: 'owasp-a03-injection',
+          title: 'SQL injection',
+          severity: 'HIGH',
+          filePath: 'src/db.ts',
+          description: 'Untrusted input reaches a SQL query.',
+          beforeSnippet: 'query(input)',
+          afterSnippet: 'query(parameterizedInput)',
+        },
+      });
+      expect(finding?.id).toBe(1);
+
+      for (let index = 0; index < 1004; index += 1) {
+        emitAuditEvent(auditId, thoughtEnvelope(auditId, `event ${index}`));
+      }
+      const terminal = emitAuditEvent(auditId, {
+        type: 'AUDIT_COMPLETED',
+        timestamp: '2026-09-23T10:01:00.000Z',
+        auditId,
+        payload: {
+          status: 'completed',
+          healthScore: 72,
+          summary: { totalFindings: 1 },
+        },
+      });
+
+      expect(terminal?.id).toBe(1006);
+      expect(findAuditById(auditId)).toMatchObject({
+        status: 'completed',
+        lastEventId: 1006,
+        firstAvailableEventId: 7,
+        findings: [{ ruleId: 'owasp-a03-injection', eventId: 1 }],
+        summary: { totalFindings: 1, healthScore: 72 },
+      });
+
+      const replayFromExpiredCursor: number[] = [];
+      subscribeToAuditStream(
+        auditId,
+        {
+          onEvent: (event) => replayFromExpiredCursor.push(event.id),
+          onClose: () => {},
+        },
+        { lastEventId: 5 },
+      );
+      expect(replayFromExpiredCursor).toHaveLength(1000);
+      expect(replayFromExpiredCursor[0]).toBe(7);
+      expect(replayFromExpiredCursor.at(-1)).toBe(1006);
+      expect(replayFromExpiredCursor.every((id, index, ids) => index === 0 || id === (ids[index - 1] ?? 0) + 1)).toBe(true);
+
+      const replayFromRetainedCursor: number[] = [];
+      subscribeToAuditStream(
+        auditId,
+        {
+          onEvent: (event) => replayFromRetainedCursor.push(event.id),
+          onClose: () => {},
+        },
+        { lastEventId: 500 },
+      );
+      expect(replayFromRetainedCursor[0]).toBe(501);
+      expect(replayFromRetainedCursor.at(-1)).toBe(1006);
+      expect(replayFromRetainedCursor).toHaveLength(506);
+
+      const replayFromCurrentCursor: number[] = [];
+      subscribeToAuditStream(
+        auditId,
+        {
+          onEvent: (event) => replayFromCurrentCursor.push(event.id),
+          onClose: () => {},
+        },
+        { lastEventId: 1005 },
+      );
+      expect(replayFromCurrentCursor).toEqual([1006]);
+
+      for (const cursor of [1006, 2000]) {
+        const replay: number[] = [];
+        subscribeToAuditStream(
+          auditId,
+          {
+            onEvent: (event) => replay.push(event.id),
+            onClose: () => {},
+          },
+          { lastEventId: cursor },
+        );
+        expect(replay).toEqual([]);
+      }
+
+      const snapshot = await request(createApp({ runner: null })).get(`${API_V1}/audits/${auditId}`);
+      expect(snapshot.status).toBe(200);
+      expect(snapshot.body).toMatchObject({
+        lastEventId: 1006,
+        firstAvailableEventId: 7,
+        findings: [{ eventId: 1, ruleId: 'owasp-a03-injection' }],
+        summary: { totalFindings: 1, healthScore: 72 },
+      });
     });
 
     it('returns null when subscribing to an unknown audit', () => {

@@ -12,7 +12,7 @@
 `mfe-metrics` must render every SSE event within the 500ms budget (NFR-P1), strictly in order (NFR-A2), while remaining correct across reconnects. The backend contract is already fixed (ADR-001):
 
 - Frames are `id: <n>` / `event: <type>` / `data: <JSON>` + blank line, with `retry: 5000` on connect; the envelope `id` is a monotonic per-audit sequence starting at 1 (D-6).
-- The server buffers the last 1000 events per audit, replays from the `Last-Event-ID` cursor, and closes the connection after the terminal `AUDIT_COMPLETED` (D-API-6). A cursor older than the buffer resumes from buffer **end** (possible gap).
+- The server buffers the last 1000 events per audit, replays retained events whose IDs are greater than the `Last-Event-ID` cursor, and closes the connection after the terminal `AUDIT_COMPLETED` (D-API-6). `GET /audits/{id}` exposes `firstAvailableEventId` and `lastEventId`; clients can detect an expired cursor and reconcile the current snapshot even if no subsequent SSE event arrives.
 - Unknown audits yield a 404 Problem **before** any stream header (D-3); a client that blindly retries would loop forever against a dead session.
 
 Client-side alternatives considered:
@@ -41,7 +41,7 @@ Client-side alternatives considered:
 | Hook + reducer            | `apps/mfe-metrics/src/hooks/useAgentStream.ts`                                                                                                                                                                     |
 | REST reconciliation query | `apps/mfe-metrics` — `useQuery(GET /audits/{id})` (openapi `getAudit`), Problem-typed 404 → "not found" view                                                                                                       |
 | Wire format consumed      | `@sentinel/api` `src/sse/serializer.ts` — `serializeSseFrame` (`id:`/`event:`/`data:`), `serializeSseRetryHint` (`retry: 5000`), `SSE_RESPONSE_HEADERS`; mock parity via `packages/contracts` `serializeSseEvents` |
-| Server resync semantics   | `@sentinel/api` `src/sse/hub.ts` — `parseLastEventId`, `resumeCursorFor`, `subscribeToAuditStream` (replay-then-close)                                                                                             |
+| Server resync semantics   | `@sentinel/api` `src/sse/hub.ts` — `parseLastEventId`, `subscribeToAuditStream` (ID-filtered replay-then-close); snapshot watermarks in `src/store/audits.ts` |
 | Server terminal close     | `@sentinel/api` `src/sse/hub.ts` — `closeAllSubscribers` on `AUDIT_COMPLETED`; 404-before-headers in `src/routes/audits.ts` — `streamAuditHandler` (D-3)                                                           |
 | Event fixtures (tests)    | `packages/contracts/src/fixtures/events.ts` — happy + failure sequences incl. degradation parity with `apps/api/src/agent/stub-runner.ts`                                                                          |
 
@@ -56,7 +56,7 @@ Client-side alternatives considered:
 
 ### Cons
 
-- **Gap window after buffer eviction:** if a client disconnects long enough for the server to evict past its cursor (1000-event cap, ADR-004), the server resumes from buffer end; the UI must show the gap banner rather than fake continuity — accepted for the PoC.
+- **Gap window after buffer eviction:** evicted events cannot be replayed (1000-event cap, ADR-004). The snapshot can recover findings/status/summary but not the missing timeline; the UI must show the gap banner rather than fake continuity.
 - **Dedup requires id discipline:** the strategy assumes the server's monotonic ids (D-6). Any future multi-node backend sharding the sequence would need a redesign (single hub, single process today — ADR-003/004).
 - **No cross-tab sharing:** two tabs on the same audit each hold their own EventSource and reducer; harmless (the hub fans out per connection) but doubles connections — acceptable at PoC scale.
 - **Native `EventSource` cannot send custom headers on the _initial_ request**, so future authentication for a shared/remote deployment may require a `fetch`-based parser or another approved mechanism. Such deployment is outside the current loopback-only policy (ADR-008); an `X-API-Key` placeholder is not authentication.

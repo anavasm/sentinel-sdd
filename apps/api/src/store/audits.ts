@@ -1,6 +1,12 @@
 import { randomBytes } from 'node:crypto';
 
-import type { Audit, AuditConfig, AuditStatus, Finding } from '@sentinel/contracts';
+import type {
+  Audit,
+  AuditConfig,
+  AuditStatus,
+  AuditFinding,
+  SentinelAISSEEventContract,
+} from '@sentinel/contracts';
 
 /**
  * In-memory audit lifecycle store (ASD §8.1).
@@ -53,6 +59,8 @@ export function createAudit({ config, generateId = generateAuditId }: CreateAudi
     config,
     createdAt: new Date().toISOString(),
     findings: [],
+    lastEventId: 0,
+    firstAvailableEventId: null,
   };
 
   audits.set(audit.auditId, audit);
@@ -95,7 +103,7 @@ export function transitionAuditStatus(auditId: string, nextStatus: AuditStatus):
  */
 export function appendFindings(
   auditId: string,
-  newFindings: readonly Finding[],
+  newFindings: readonly AuditFinding[],
 ): Audit | undefined {
   const audit = audits.get(auditId);
   if (audit === undefined) {
@@ -106,6 +114,53 @@ export function appendFindings(
   }
 
   audit.findings = [...(audit.findings ?? []), ...newFindings];
+  return audit;
+}
+
+/**
+ * Applies one validated hub event and its replay-window watermark to the audit
+ * snapshot in one synchronous store operation.
+ */
+export function recordAuditEvent(
+  auditId: string,
+  event: SentinelAISSEEventContract,
+  firstAvailableEventId: number,
+): Audit | undefined {
+  const audit = audits.get(auditId);
+  if (audit === undefined) {
+    return undefined;
+  }
+  if (event.id !== audit.lastEventId + 1) {
+    throw new Error(
+      `Invalid audit event sequence ${event.id} after ${audit.lastEventId} for audit ${auditId}.`,
+    );
+  }
+  if (
+    !Number.isInteger(firstAvailableEventId)
+    || firstAvailableEventId < 1
+    || firstAvailableEventId > event.id
+    || (audit.firstAvailableEventId !== null && firstAvailableEventId < audit.firstAvailableEventId)
+  ) {
+    throw new Error(`Invalid replay window watermark for audit ${auditId}.`);
+  }
+
+  if (audit.status === 'queued') {
+    transitionAuditStatus(auditId, 'running');
+  }
+  if (event.type === 'VULNERABILITY_FOUND') {
+    appendFindings(auditId, [{ ...event.payload, eventId: event.id }]);
+  }
+  if (event.type === 'AUDIT_COMPLETED') {
+    transitionAuditStatus(auditId, event.payload.status === 'failed' ? 'failed' : 'completed');
+    audit.summary = {
+      ...(event.payload.summary ?? {}),
+      ...(event.payload.healthScore !== undefined ? { healthScore: event.payload.healthScore } : {}),
+      ...(event.payload.error !== undefined ? { error: event.payload.error } : {}),
+    };
+  }
+
+  audit.lastEventId = event.id;
+  audit.firstAvailableEventId = firstAvailableEventId;
   return audit;
 }
 

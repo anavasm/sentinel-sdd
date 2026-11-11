@@ -132,12 +132,20 @@ export interface components {
             config: components["schemas"]["AuditConfig"];
             /** Format: date-time */
             createdAt: string;
-            /** @description Findings accumulated so far; complete once status is completed. */
-            findings?: components["schemas"]["Finding"][];
-            /** @description Final summary; present once status is completed or failed. */
+            /** @description Findings accumulated so far with the SSE event ID that identifies each finding. */
+            findings?: components["schemas"]["AuditFinding"][];
+            /** @description Highest event ID incorporated into this snapshot; 0 means no audit events have been emitted. */
+            lastEventId: number;
+            /** @description Lowest event ID retained in the SSE replay buffer, or null before the first event. */
+            firstAvailableEventId: number | null;
+            /** @description Terminal summary, including healthScore and error when present; available once status is completed or failed. */
             summary?: {
                 [key: string]: unknown;
             };
+        };
+        AuditFinding: components["schemas"]["Finding"] & {
+            /** @description SSE event ID that emitted this finding. */
+            eventId: number;
         };
         /** @description RFC 9457 Problem Details (D-2) — single error model for all REST failures. */
         Problem: {
@@ -204,7 +212,7 @@ export interface components {
             payload?: {
                 /** @description Free-form reasoning text shown in the live console. */
                 content: string;
-                /** @description Optional label of the current audit phase (clone, analyze, remediate...). */
+                /** @description Optional label of the current audit phase (clone, analyze, report...). */
                 step?: string;
             } & {
                 [key: string]: unknown;
@@ -302,7 +310,7 @@ export interface components {
                     payload?: {
                         /** @description Free-form reasoning text shown in the live console. */
                         content: string;
-                        /** @description Optional label of the current audit phase (clone, analyze, remediate...). */
+                        /** @description Optional label of the current audit phase (clone, analyze, report...). */
                         step?: string;
                     } & {
                         [key: string]: unknown;

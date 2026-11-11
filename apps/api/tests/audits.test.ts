@@ -16,6 +16,8 @@ import { resetSseHub, subscribeToAuditStream } from '../src/sse/hub.js';
 import {
   appendFindings,
   createAudit,
+  findAuditById,
+  recordAuditEvent,
   resetAuditStore,
   setAuditSummary,
   transitionAuditStatus,
@@ -455,6 +457,20 @@ describe('US-3 - GET /api/v1/audits/:auditId and session state', () => {
     );
   }
 
+  function recordFinding(auditId: string, finding: Finding, eventId: number): void {
+    recordAuditEvent(
+      auditId,
+      {
+        id: eventId,
+        type: 'VULNERABILITY_FOUND',
+        timestamp: new Date().toISOString(),
+        auditId,
+        payload: finding,
+      },
+      findAuditById(auditId)?.firstAvailableEventId ?? eventId,
+    );
+  }
+
   it('returns 200 with a queued audit right after creation', async () => {
     const auditId = await createAuditViaApi();
     const app = createApp({ runner: null });
@@ -465,13 +481,14 @@ describe('US-3 - GET /api/v1/audits/:auditId and session state', () => {
     expect(response.headers['content-type']).toContain('application/json');
     expectAuditShape(response.body, 'queued');
     expect(response.body.findings).toEqual([]);
+    expect(response.body.lastEventId).toBe(0);
+    expect(response.body.firstAvailableEventId).toBeNull();
     expect(response.body.summary).toBeUndefined();
   });
 
   it('returns 200 with a running audit and findings accumulated so far', async () => {
     const auditId = await createAuditViaApi();
-    transitionAuditStatus(auditId, 'running');
-    appendFindings(auditId, [sampleFinding('owasp-a03-injection')]);
+    recordFinding(auditId, sampleFinding('owasp-a03-injection'), 1);
     const app = createApp({ runner: null });
 
     const response = await request(app).get(`${API_V1}/audits/${auditId}`);
@@ -481,14 +498,17 @@ describe('US-3 - GET /api/v1/audits/:auditId and session state', () => {
     expect(response.body.findings).toHaveLength(1);
     expect(response.body.findings[0]).toMatchObject({
       ruleId: 'owasp-a03-injection',
+      eventId: 1,
     });
+    expect(response.body.lastEventId).toBe(1);
+    expect(response.body.firstAvailableEventId).toBe(1);
     expect(response.body.summary).toBeUndefined();
   });
 
   it('returns 200 with a completed audit including full findings and summary', async () => {
     const auditId = await createAuditViaApi();
-    transitionAuditStatus(auditId, 'running');
-    appendFindings(auditId, [sampleFinding('owasp-a03-injection'), sampleFinding('tq-thin-tests')]);
+    recordFinding(auditId, sampleFinding('owasp-a03-injection'), 1);
+    recordFinding(auditId, sampleFinding('tq-thin-tests'), 2);
     transitionAuditStatus(auditId, 'completed');
     setAuditSummary(auditId, { totalFindings: 2, healthScore: 62 });
     const app = createApp({ runner: null });
@@ -598,8 +618,12 @@ describe('US-3 - audit lifecycle store transitions', () => {
     const auditId = seedAudit();
     transitionAuditStatus(auditId, 'running');
 
-    appendFindings(auditId, [sampleFinding('owasp-a03-injection')]);
-    appendFindings(auditId, [sampleFinding('tq-thin-tests')]);
+    appendFindings(auditId, [
+      { ...sampleFinding('owasp-a03-injection'), eventId: 1 },
+    ]);
+    appendFindings(auditId, [
+      { ...sampleFinding('tq-thin-tests'), eventId: 2 },
+    ]);
 
     const stored = transitionAuditStatus(auditId, 'completed');
     expect(stored?.findings?.map((finding) => finding.ruleId)).toEqual([
@@ -613,7 +637,7 @@ describe('US-3 - audit lifecycle store transitions', () => {
     transitionAuditStatus(auditId, 'running');
     transitionAuditStatus(auditId, 'completed');
 
-    expect(() => appendFindings(auditId, [sampleFinding('late-rule')])).toThrow(/terminal/);
+    expect(() => appendFindings(auditId, [{ ...sampleFinding('late-rule'), eventId: 1 }])).toThrow(/terminal/);
   });
 
   it('rejects setting a summary before a terminal state', () => {

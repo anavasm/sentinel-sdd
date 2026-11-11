@@ -26,21 +26,24 @@ Specifically:
    `queued → running → completed | failed`; `completed`/`failed` → *nothing*.
 2. **Terminal audits are frozen:** `appendFindings` and late `emitAuditEvent` calls on a terminal audit throw / are ignored respectively; `setAuditSummary` throws on non-terminal audits.
 3. **Findings are accumulated only from validated stream events** (hub-driven, per ADR-003), so the REST snapshot and the SSE stream can never disagree.
-4. **Event buffer cap of 1000 per audit (D-API-4):** replay must terminate; the oldest events are shifted out FIFO. Replay delivers from the resync cursor to buffer end, then closes for terminal audits (replay-then-close, D-API-6).
-5. **Restart loses all session state — accepted and documented** (PoC limitation per ASD §8.1). No write-ahead log, no SQLite, no Redis.
-6. **Test isolation is explicit:** `resetAuditStore()` / `resetSseHub()` exist *because* state is in-memory by design.
+4. **Event buffer cap of 1000 per audit (D-API-4):** replay must terminate; the oldest events are shifted out FIFO. Replay selects retained events by actual ID greater than the cursor, then closes for terminal audits (replay-then-close, D-API-6). The snapshot carries `lastEventId` and `firstAvailableEventId` so clients can detect an unavailable range.
+5. **Snapshot follows each validated event synchronously:** the hub updates status, finding/event identity, terminal summary, and replay watermarks before fan-out. `GET /audits/{id}` reports the same event watermark as the stream and retains accumulated state independently of the replay buffer.
+6. **Restart loses all session state — accepted and documented** (PoC limitation per ASD §8.1). No write-ahead log, no SQLite, no Redis.
+7. **Test isolation is explicit:** `resetAuditStore()` / `resetSseHub()` exist *because* state is in-memory by design.
 
 ### Code references (`@sentinel/api`)
 
 | Concern | Location |
 |---|---|
 | In-process store, documented PoC limitation | `src/store/audits.ts` — module header ("No database, no migrations; server restart loses all session state"), `const audits = new Map<string, Audit>()` |
+| Event sequence and replay-window snapshot metadata | `src/store/audits.ts` — `lastEventId`, `firstAvailableEventId`, `recordAuditEvent()` |
+| Finding identity in snapshot | `src/store/audits.ts` — each finding stores the ID of its `VULNERABILITY_FOUND` event |
 | Explicit lifecycle transition table | `src/store/audits.ts` — `VALID_TRANSITIONS` |
 | Throw on invalid transition (caller bug) | `src/store/audits.ts` — `transitionAuditStatus()` |
 | Frozen terminal state for findings | `src/store/audits.ts` — `appendFindings()` (`Cannot append findings to terminal audit`) |
 | Summary only on terminal audits | `src/store/audits.ts` — `setAuditSummary()` |
 | Buffer cap 1000 / FIFO eviction (D-API-4) | `src/sse/hub.ts` — `MAX_BUFFERED_EVENTS`, shift in `emitAuditEvent()` and `emitTerminalFailure()` |
-| Hub-driven state transitions (single writer) | `src/sse/hub.ts` — `emitAuditEvent()` (`transitionAuditStatus`, `appendFindings`, `setAuditSummary` calls) |
+| Hub-driven, synchronous snapshot updates (single writer) | `src/sse/hub.ts` — `emitAuditEvent()` calls `recordAuditEvent()` before fan-out |
 | Replay-then-close for terminal audits (D-API-6) | `src/sse/hub.ts` — `subscribeToAuditStream()` (`isTerminal` branch) |
 | Terminal audits ignore late emissions | `src/sse/hub.ts` — `emitAuditEvent()` early return |
 | Audit id pattern shared by generation and validation | `src/store/audits.ts` — `AUDIT_ID_PATTERN`, `generateAuditId()`; consumed by `src/routes/audits.ts` — `getAuditHandler` |
@@ -54,6 +57,7 @@ Specifically:
 - **Strong consistency by construction:** a single `Map` in a single Node process accessed synchronously means no read-after-write anomalies between `GET /audits/{id}` and the stream; concurrency concerns reduce to fan-out cursors.
 - **Bugs are loud, not latent:** throw-on-invalid-transition and frozen terminals turn producer bugs into immediate, testable failures instead of corrupted-but-plausible state.
 - **Bounded memory:** the 1000-event cap makes worst-case memory per audit predictable and replay bounded.
+- **Snapshot outlives replay history:** findings and terminal summary remain available after their source events are evicted; `firstAvailableEventId` identifies the retained timeline boundary.
 
 ### Cons
 

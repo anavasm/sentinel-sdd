@@ -37,8 +37,8 @@ A `retry: 5000` hint is written once at stream open. Reconnects resume strictly 
 | Fixed SSE response headers (`text/event-stream`, `no-cache`, `keep-alive`) | `src/sse/serializer.ts` — `SSE_RESPONSE_HEADERS` |
 | Frame format `id:`/`event:`/`data:` + trailing blank line | `src/sse/serializer.ts` — `serializeSseFrame()` |
 | One-time `retry:` hint (5000 ms) | `src/sse/serializer.ts` — `serializeSseRetryHint()`, `SSE_RETRY_HINT_MS` |
-| Hub owns the monotonic sequence starting at 1 | `src/sse/hub.ts` — `emitAuditEvent()` (`const sequenceId = lastBufferedId + 1`) |
-| `Last-Event-ID` parsing and resync cursor | `src/sse/hub.ts` — `parseLastEventId()`, `resumeCursorFor()`; consumed in `src/routes/audits.ts` — `streamAuditHandler` |
+| Hub owns the monotonic sequence starting at 1 | `src/sse/hub.ts` — `emitAuditEvent()` (next ID comes from the audit snapshot watermark) |
+| `Last-Event-ID` parsing and resync cursor | `src/sse/hub.ts` — `parseLastEventId()`, `subscribeToAuditStream()`; consumed in `src/routes/audits.ts` — `streamAuditHandler` |
 | Replay-then-live subscription with per-subscriber cursor | `src/sse/hub.ts` — `subscribeToAuditStream()` |
 
 ## Consequences
@@ -52,9 +52,9 @@ A `retry: 5000` hint is written once at stream open. Reconnects resume strictly 
 
 ### Cons
 
-- **Buffer-eviction vs. `Last-Event-ID`:** the per-audit buffer is capped at 1000 events (`MAX_BUFFERED_EVENTS`, `src/sse/hub.ts`); a `Last-Event-ID` older than the buffer silently resumes from the buffer end (`resumeCursorFor`), i.e. the client misses events without an explicit "gap" signal. Acceptable for the PoC; a production system would need a `gap`/`reset` event.
+- **Buffer-eviction vs. `Last-Event-ID`:** the per-audit buffer is capped at 1000 events (`MAX_BUFFERED_EVENTS`, `src/sse/hub.ts`). Replay filters by actual event IDs and returns all retained events after the cursor, even when the cursor predates the buffer. `GET /audits/{id}` exposes `firstAvailableEventId` and `lastEventId`, allowing clients to detect an unavailable range even when no later event arrives. Evicted historical events are not reconstructed; the snapshot recovers current findings/status/summary, not the missing timeline.
 - **Strict 404-before-headers ordering is a coding invariant**, not something the framework enforces — it is protected by tests (`apps/api/tests/sse.test.ts`) and documented in the controller, but a refactor could regress it silently.
-- **Numeric ids only:** `parseLastEventId` rejects non-integer/negative ids (defensive resync to buffer end), so opaque string event ids would require a mapping layer if ever needed.
+- **Numeric ids only:** `parseLastEventId` rejects non-integer/negative ids, so opaque string event ids would require a mapping layer if ever needed.
 
 ## Status
 

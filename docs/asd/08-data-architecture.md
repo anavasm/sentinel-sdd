@@ -15,9 +15,9 @@
 | Entity                                                        | Held in                  | Lifetime               | Notes                                                               |
 | ------------------------------------------------------------- | ------------------------ | ---------------------- | ------------------------------------------------------------------- |
 | Audit definition (repo, rules, severity threshold)            | In-memory Map            | Session                | Created via `POST /api/v1/audits`; conforms to `specs/openapi.yaml` |
-| Agent event stream                                            | SSE hub buffer + browser | Session                | 4 event types per `specs/events-schema.json`                        |
-| Findings (review items) with proposed Before/After snippets | In-memory Map | Session                | Consumed by `mfe-metrics`; After is a manual suggestion, never applied to repository files |
-| Health score / severity distribution                          | Derived client-side      | Session                | Computed in `mfe-metrics` from received events                      |
+| Agent event stream                                            | SSE hub buffer + browser | Session                | 4 event types per `specs/events-schema.json`; last 1000 events retained, with snapshot `lastEventId` and `firstAvailableEventId` watermarks |
+| Findings (review items) with proposed Before/After snippets | In-memory Map | Session                | Each finding retains its source SSE `eventId`; consumed by `mfe-metrics`; After is a manual suggestion, never applied to repository files |
+| Health score / severity distribution                          | In-memory terminal summary + metrics view | Session | Health score is retained from the completion event; distribution is available from the snapshot findings/events |
 | Final report                                                  | **Exported file**        | Persistent (user-side) | Markdown export is the only durable artifact of an audit            |
 
 ## 8.3 Event Schema Governance
