@@ -242,4 +242,68 @@ describe('useAuditStream', () => {
     expect(result.current.snapshot?.findings).toHaveLength(1);
     expect(MockEventSource.instances).toHaveLength(0);
   });
+
+  it('does not let a late lower-watermark snapshot overwrite newer state', async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        auditId: AUDIT_ID,
+        status: 'running',
+        config: { localPath: '/tmp/repo' },
+        createdAt: '2026-09-23T10:00:00.000Z',
+        findings: [],
+        lastEventId: 5,
+        firstAvailableEventId: 1,
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        auditId: AUDIT_ID,
+        status: 'running',
+        config: { localPath: '/tmp/repo' },
+        createdAt: '2026-09-23T10:00:00.000Z',
+        findings: [],
+        lastEventId: 3,
+        firstAvailableEventId: 1,
+      }), { status: 200 }));
+    const { result } = renderHook(() => useAuditStream(AUDIT_ID));
+    await waitForConnection();
+
+    act(() => {
+      MockEventSource.lastInstance?.simulateError();
+    });
+    await waitFor(() => expect(vi.mocked(fetch)).toHaveBeenCalledTimes(2));
+
+    expect(result.current.snapshot?.lastEventId).toBe(5);
+  });
+
+  it('closes an open stream when reconnection reconciliation discovers a terminal audit', async () => {
+    const runningSnapshot = JSON.stringify({
+      auditId: AUDIT_ID,
+      status: 'running',
+      config: { localPath: '/tmp/repo' },
+      createdAt: '2026-09-23T10:00:00.000Z',
+      findings: [],
+      lastEventId: 1,
+      firstAvailableEventId: 1,
+    });
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(new Response(runningSnapshot, { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+      auditId: AUDIT_ID,
+      status: 'completed',
+      config: { localPath: '/tmp/repo' },
+      createdAt: '2026-09-23T10:00:00.000Z',
+      findings: [],
+      lastEventId: 2,
+      firstAvailableEventId: 1,
+      summary: { healthScore: 90 },
+      }), { status: 200 }));
+    const { result } = renderHook(() => useAuditStream(AUDIT_ID));
+    await waitForConnection();
+
+    act(() => {
+      MockEventSource.lastInstance?.simulateError();
+    });
+
+    await waitFor(() => expect(result.current.status).toBe('DISCONNECTED'));
+    expect(MockEventSource.lastInstance?.close).toHaveBeenCalled();
+  });
 });

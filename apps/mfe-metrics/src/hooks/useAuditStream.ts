@@ -175,6 +175,7 @@ function createStreamController(
 ): { start(): void; dispose(): void } {
   let active = true;
   let eventSource: EventSource | undefined;
+  let appliedSnapshotEventId = -1;
   const abortController = new AbortController();
   const accumulator = createEventAccumulator(
     callbacks.setGapDetected,
@@ -182,10 +183,13 @@ function createStreamController(
   );
 
   const applySnapshot = (snapshot: Audit): void => {
+    if (snapshot.lastEventId <= appliedSnapshotEventId) return;
+    appliedSnapshotEventId = snapshot.lastEventId;
     accumulator.applySnapshot(snapshot);
     callbacks.setSnapshot(snapshot);
     if (snapshot.status === 'completed' || snapshot.status === 'failed') {
       callbacks.setStatus('DISCONNECTED');
+      eventSource?.close();
     }
   };
 
