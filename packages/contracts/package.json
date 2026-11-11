@@ -18,12 +18,13 @@
     "generate:api": "openapi-typescript ../../specs/openapi.yaml -o ./src/generated/api-schema.d.ts",
     "generate:events": "json2ts -i ../../specs/events-schema.json -o ./src/generated/events.d.ts",
     "validate": "node --experimental-strip-types ./src/validate.ts",
-    "test": "vitest run",
+    "test": "vitest run --coverage",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src/"
   },
   "devDependencies": {
     "@eslint/js": "^9.18.0",
+    "@vitest/coverage-v8": "^2.1.9",
     "ajv": "^8.17.1",
     "ajv-formats": "^3.0.1",
     "eslint": "^9.18.0",

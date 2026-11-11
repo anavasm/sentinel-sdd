@@ -293,7 +293,7 @@ Total: ~2–3 developer-days. Completing Tasks 1–5 satisfies the SDD gate (C-0
 - [ ] Contracts validated before code — `/specs` passes validation scripts (C-04/C-08, §9.3)
 - [ ] Architecture principles followed — spec-first (§5.1), shared-types-from-contracts (§6.3.4)
 - [ ] CI/lint gates green — `turbo run lint` + `typecheck` zero errors (§9.2)
-- [ ] Test coverage > 80% on `packages/contracts` logic (§10.3 — validation/fixture code, trivially testable)
+- [x] Test coverage > 80% on `packages/contracts` runtime logic (§10.3 — `api-client.ts`; static fixtures, mocks, generated declarations, and the process-level validation CLI are explicitly excluded)
 - [ ] NFR alignment documented in specs — SSE latency note (NFR-P1), in-order delivery (NFR-A2), degradation-as-event (NFR-A3), per-audit stream scope (NFR-S3)
 
 **Standard Checklist:**

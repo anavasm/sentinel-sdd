@@ -29,10 +29,10 @@ export default defineConfig({
       ],
       thresholds: {
         // ASD §10.3 / C §4.2: coverage gate > 80%.
-        lines: 80,
-        functions: 80,
-        branches: 80,
-        statements: 80,
+        lines: 80.01,
+        functions: 80.01,
+        branches: 80.01,
+        statements: 80.01,
       },
     },
   },

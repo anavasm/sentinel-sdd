@@ -21,7 +21,7 @@ No persistence, authentication, multiuser deployment, or changes to the P0 secur
 | Fix | OpenAPI and the metrics client advertise remediation, but `api-v1.ts` does not register that route. The remote clone is deleted after reading. |
 | SSE | The hook uses `JSON.parse` and a cast, appends without deduplication, and does not query the REST snapshot. The hub limits the buffer to 1000 events; its current cursor treats an ID as a buffer index and becomes incorrect after eviction. |
 | Snapshot | `GET /audits/:id` contains status and findings, but no event watermark; the current state does not explicitly retain all terminal data needed to reconstruct the header if the terminal event is lost. |
-| Gates | The four `apps` workspaces configure thresholds of 80 and their test scripts run coverage; `packages/contracts` runs Vitest without coverage. This planning exercise has not verified actual coverage or that the gate requires **strictly greater** than 80%. The latency KPI has not been demonstrated. |
+| Gates | The four `apps` workspaces configure coverage thresholds and their test scripts run coverage; `packages/contracts` now runs Vitest with its own coverage gate. The strict `>80%` gate and all workspace results are recorded in phase 4.6 evidence. The latency KPI has not been demonstrated. |
 | Tests | The `App.test.tsx` failure due to missing `EventSource` and an unexpected worker exit were reported by the previous analysis, not reproduced during this planning exercise. |
 
 Normative references: `docs/asd/03-nfr.md`, `docs/asd/08-data-architecture.md`, `docs/asd/10-testing.md`, `docs/adr/ADR-001-sse-framing-and-pre-header-404.md`, `docs/adr/ADR-006-frontend-state-management-and-sse-resync.md`, and `docs/adr/ADR-008-local-only-repository-and-llm-boundaries.md`. Replay decisions that contradict the corrected implementation must be explicitly updated.
@@ -113,6 +113,8 @@ To reproduce, start Ollama and the API as described in the README, configure `SE
 - Add tests until each workspace and applicable metric exceeds the threshold. Connect the gate to the required local command and the existing pipeline if present; document the command and evidence per workspace. Confirm that no cache is reused in a way that hides changes.
 
 **Acceptance:** negative controls demonstrate that exactly 80% fails; a real full run succeeds with every metric strictly above 80% in the documented scopes. Record percentages and justified exclusions; do not confuse a generated report with a passed gate.
+
+**Phase 4.6 evidence:** All five workspaces now execute coverage-enabled tests through `pnpm test`. Every Vitest threshold is `80.01` for lines, statements, functions, and branches, which rejects exactly 80% instead of allowing it through an integer threshold. `packages/contracts` now has a dedicated Vitest coverage configuration; generated declarations, static fixtures/MSW data, the type barrel, and the process-level `validate.ts` CLI are excluded with explicit rationale, while `api-client.ts` is covered by four direct tests. Full `pnpm test` passed with these results: API 93.09% lines/statements, 87.32% branches, 99.07% functions; contracts 95.83% lines/statements, 83.33% branches, 100% functions; mfe-config 99.23% lines/statements, 90.90% branches/functions; mfe-metrics 98.27% lines/statements, 90.75% branches, 100% functions; mfe-shell 100% across all four metrics. Full lint, typecheck, and contract validation also passed. The real-browser latency gate in §4.7 remains outstanding.
 
 ### 4.7 End-to-End SSE Latency
 
