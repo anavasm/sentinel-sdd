@@ -125,6 +125,8 @@ To reproduce, start Ollama and the API as described in the README, configure `SE
 
 **Acceptance:** the command returns a nonzero exit code for any event >=500 ms, missing event, or out-of-order event; all 30 measurements and execution conditions are attached. The target remains unproven if it has not been run in a real browser, even if the test is written or mocks pass.
 
+**Phase 4.7 evidence:** Added [`tests/e2e/sse-latency.spec.ts`](../../tests/e2e/sse-latency.spec.ts), a Playwright Chromium test that drives the shell at `/audits/:auditId`, opens the real API SSE stream, and waits for each event to appear in the rendered `All Events` list. The isolated test server in [`apps/api/tests/e2e/latency-server.ts`](../../apps/api/tests/e2e/latency-server.ts) creates deterministic in-memory audits and exposes only test-process controls for sequential synthetic emissions; production routes are not extended. On macOS arm64 with Node `v24.22.1`, Playwright `1.49.1`, and Chrome for Testing `158.0.8127.18`, `pnpm test:e2e:latency` passed 30 ordered events with min `3.10 ms`, median `3.86 ms`, p95 `8.73 ms`, and maximum `11.35 ms`. The negative control injects a `600 ms` delay and measured at least `500 ms`, confirming that the threshold detects a violation. The result is local-load evidence, not a production-capacity guarantee.
+
 ## 5. Verification and Closeout
 
 1. Run contract validation and type generation, checking that no generated diff remains pending: `pnpm --filter @sentinel/contracts validate` and the relevant `generate:api`/`generate:events` scripts.

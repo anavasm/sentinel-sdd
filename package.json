@@ -11,11 +11,13 @@
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
+    "test:e2e:latency": "playwright test tests/e2e/sse-latency.spec.ts",
     "build": "turbo run build",
     "dev": "node scripts/dev-federation.mjs",
     "dev:host": "pnpm --filter @sentinel/mfe-shell dev"
   },
   "devDependencies": {
+    "@playwright/test": "^1.49.1",
     "prettier": "3.9.9",
     "turbo": "^2"
   }
