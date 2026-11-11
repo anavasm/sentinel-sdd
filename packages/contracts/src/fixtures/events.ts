@@ -116,7 +116,7 @@ export const auditFailedEvent: AuditCompletedEvent = {
   auditId: SAMPLE_AUDIT_ID,
   payload: {
     status: 'failed',
-    error: 'Agent engine crashed while remediating src/auth/queries.ts',
+    error: 'Agent engine crashed while analyzing src/auth/queries.ts',
   },
 };
 

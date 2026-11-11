@@ -182,7 +182,7 @@ None. The work item _is_ an ASD-mandated gate (C-04, C-08, §9.3); every design 
 | D-4 | Audit lifecycle `status` enum `queued\|running\|completed\|failed` on audit resource                                                                                | Needed by GET endpoint for async audit; supports failed-terminal-state unhappy path                                      |
 | D-5 | `AGENT_THOUGHT`/`TOOL_EXECUTION` payloads carry loose `content`/`tool`/`status` string fields with JSON Schema `additionalProperties` allowance for PoC flexibility | Agent reasoning is free-form; strict typing only where consumers depend on it (`VULNERABILITY_FOUND`, `AUDIT_COMPLETED`) |
 | D-6 | Event `id` = monotonic per-audit sequence number, also used as SSE `id:` field                                                                                      | Enables `Last-Event-ID` resync headers without violating NFR-A2 in-order guarantee                                       |
-| D-7 | `VULNERABILITY_FOUND` payload embeds Before/After snippets + location + severity (enum LOW/MEDIUM/HIGH/CRITICAL)                                                    | ASD §5.5: findings without fixes are incomplete output                                                                   |
+| D-7 | `VULNERABILITY_FOUND` payload embeds proposed Before/After snippets + location + severity (enum LOW/MEDIUM/HIGH/CRITICAL)                                            | ASD §5.5: findings without a proposed alternative are incomplete; After is for manual review and application, never an API-written change |
 
 ## 5. Technical Approach
 

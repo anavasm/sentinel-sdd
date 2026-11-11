@@ -20,7 +20,7 @@ The agent is observable by design: every thought, tool execution, and finding is
 
 ## 5.5 Actionable Output Over Noise
 
-Every `VULNERABILITY_FOUND` event carries enough context (location, severity, Before/After snippet) to be applied directly — findings without fixes are treated as incomplete output (see `02-functional-overview.md` §2.1 Module B).
+Every `VULNERABILITY_FOUND` event carries context for review (location, severity, and Before/After snippets). The After snippet is a suggestion, not an applied change; Sentinel does not modify repository files in the PoC. Findings without a proposed After snippet are treated as incomplete output (see `02-functional-overview.md` §2.1 Module B).
 
 ## 5.6 Honest Dependency Boundaries
 

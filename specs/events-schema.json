@@ -74,7 +74,7 @@
                 },
                 "step": {
                   "type": "string",
-                  "description": "Optional label of the current audit phase (clone, analyze, remediate...)."
+                  "description": "Optional label of the current audit phase (clone, analyze, report...)."
                 }
               }
             }

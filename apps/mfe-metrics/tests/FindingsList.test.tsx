@@ -3,11 +3,15 @@
  * metadata, file/line location, and Before/After diff rendering.
  */
 import { render, screen, within } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { FindingsList } from '../src/components/FindingsList';
 import { findingEvent } from './mocks/fixtures';
 
 describe('FindingsList', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it('shows an empty-state message before any finding arrives', () => {
     render(<FindingsList findings={[]} />);
 
@@ -52,6 +56,23 @@ describe('FindingsList', () => {
     expect(
       within(afterPanel).getByText('db.query("SELECT * FROM users WHERE id = ?", [userId]);'),
     ).toBeInTheDocument();
+  });
+
+  it('keeps local and remote findings as manual suggestions without network requests', () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    render(
+      <FindingsList
+        findings={[
+          findingEvent(1, 'HIGH', { filePath: 'src/local.ts' }).payload,
+          findingEvent(2, 'MEDIUM', { filePath: 'src/remote.ts' }).payload,
+        ]}
+      />,
+    );
+
+    expect(screen.getAllByTestId('finding-card')).toHaveLength(2);
+    expect(screen.getAllByText(/Sentinel does not modify repository files/i)).toHaveLength(2);
+    expect(screen.queryByRole('button', { name: /apply fix/i })).not.toBeInTheDocument();
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 
   it('omits the line suffix when lineNumber is absent', () => {

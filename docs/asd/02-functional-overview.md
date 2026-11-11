@@ -20,7 +20,7 @@ The MVP consists of three functional modules:
 
 - **Live Agent Console (SSE):** streaming event feed from the agent ("Cloning repo", "Analyzing auth.ts", "Vulnerability found").
 - **Health Dashboard:** interactive severity-distribution chart + Overall Health Score (0–100).
-- **Refactoring Drawer:** issue list with side-by-side Before/After AI-refactored code.
+- **Findings viewer:** issue list with side-by-side Before/After AI-generated code suggestions for review and manual application. The PoC does not modify repository files.
 - **Report export:** final audit report in Markdown format.
 
 ### Module C — Agent Engine & Specification (SDD)
@@ -37,7 +37,7 @@ The MVP consists of three functional modules:
 | Git URL or local repo audits                    | Organization-wide repo scanning, CI-integrated audits        |
 | LLM review across 3 focus categories            | Specialized scanners, test coverage measurement, benchmarks  |
 | Real-time SSE streaming                         | WebSockets, event replay beyond session lifetime             |
-| AI-generated refactor snippets                  | Automatic PR creation / commit application                   |
+| AI-generated code suggestions for manual review | Automatic file modification, PR creation, or commit application |
 | Markdown report export                          | PDF/HTML exports, dashboards persistence                     |
 | In-memory audit session storage                 | Database persistence, audit history                          |
 | No-auth PoC restricted to loopback (NFR-S1/S4)  | Shared/remote deployment, real authentication, multi-tenancy |

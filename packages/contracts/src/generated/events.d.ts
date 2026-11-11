@@ -21,7 +21,7 @@ export type AgentThoughtEvent = CommonEnvelope & {
      */
     content: string;
     /**
-     * Optional label of the current audit phase (clone, analyze, remediate...).
+     * Optional label of the current audit phase (clone, analyze, report...).
      */
     step?: string;
     [k: string]: unknown;

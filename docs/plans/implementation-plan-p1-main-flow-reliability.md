@@ -74,6 +74,8 @@ To reproduce, start Ollama and the API as described in the README, configure `SE
 
 **Acceptance:** no UI interaction calls remediation, the published specification does not promise the operation, and the suggestion remains visible. Tests cover a local and a remote finding, absence of the button/call, Before/After rendering, and no files being written. Future application, including safeguards against conflicts and symlinks, is outside P1.
 
+**Phase 2 evidence (2026-11-11):** Removed the Apply Fix UI, client and its tests, OpenAPI operation, and remediation-only schemas/types. Finding cards now label After as a manual suggestion and state that repository files are not modified; README, project brief, ASD, event schema, and contract descriptions were aligned. Metrics tests verify Before/After display and no action or network call for local/remote findings; the code path has no file-writing operation. OpenAPI types were regenerated; contract validation passed. All 34 metrics tests passed with coverage of 98.89% statements/lines, 94.66% branches, and 100% functions. Metrics lint, typecheck, and production build passed. No Apply Fix endpoint or client reference remains; the only negative mentions are assertions verifying the control is absent.
+
 ### 4.4 Replay Contract and Consistent Snapshot
 
 - Correct the hub to select events by `event.id > Last-Event-ID`, never by index or current size; test with more than 1000 emissions and cursors before the buffer, within the buffer, at the last event, and beyond it. The ID remains monotonic per audit, including after eviction and validation failure.

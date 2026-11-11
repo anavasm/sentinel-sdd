@@ -10,7 +10,7 @@
 
 Engineering teams currently spend countless hours reviewing Pull Requests manually or dealing with traditional static code analyzers (like SonarQube or ESLint). These legacy tools often generate hundreds of false positives, lack contextual understanding of code intent, run slowly, and fail to provide real-time feedback during execution.
 
-**DevSecOps Sentinel AI** is designed as a unified command center that enables organizations to audit code repositories using an **autonomous AI agent**. The platform detects security vulnerabilities (OWASP Top 10) and code smells, streams step-by-step execution logs in real time, and delivers ready-to-apply code refactorings.
+**DevSecOps Sentinel AI** is a local proof of concept for auditing code repositories using an AI agent. The platform performs LLM-assisted review across selected focus areas, streams execution events in real time, and presents Before/After code suggestions for human review. It does not apply changes to repository files.
 
 ---
 
@@ -18,7 +18,7 @@ Engineering teams currently spend countless hours reviewing Pull Requests manual
 
 1. **Real-Time Observability:** Eliminate developer friction during audits by streaming the agent's thought process and actions live (log latency < 500ms).
 2. **Strict Architectural Modularization:** The user interface must adopt a **Microfrontend (MFE)** architecture, enabling distinct frontend teams to independently evolve the Configuration module and the Metrics/Analytics module.
-3. **Actionable Fixes over Noise:** Rather than simply listing issues, the agent must provide an **AI-generated refactored code snippet** ready for copy/apply.
+3. **Actionable Findings over Noise:** Rather than simply listing issues, the agent provides an **AI-generated After snippet** for human review and manual application.
 
 ---
 

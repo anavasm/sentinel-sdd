@@ -18,12 +18,12 @@ Engineering teams spend significant time manually reviewing Pull Requests or tri
 
 - Detects security vulnerabilities (OWASP Top 10) and code smells.
 - Streams step-by-step execution logs in real time.
-- Delivers ready-to-apply AI-generated refactorings (Before/After diffs).
+- Provides AI-generated Before/After code suggestions for human review and manual application; the PoC does not modify repository files.
 
 ### Strategic Differentiator
 
 - **Real-time observability:** the agent's reasoning and actions stream live via SSE (log transport latency < 500ms — see `03-nfr.md` §3.1).
-- **Actionable fixes over noise:** every finding ships with a copy/apply refactor snippet, not just a warning.
+- **Actionable findings over noise:** each finding includes a suggested After snippet for review; applying it remains a manual user action.
 - **Modular UI:** Microfrontend architecture lets frontend teams independently evolve Configuration vs. Metrics/Analytics.
 
 ### Stakeholders

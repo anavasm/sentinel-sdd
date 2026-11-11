@@ -16,7 +16,7 @@
 | ------------------------------------------------------------- | ------------------------ | ---------------------- | ------------------------------------------------------------------- |
 | Audit definition (repo, rules, severity threshold)            | In-memory Map            | Session                | Created via `POST /api/v1/audits`; conforms to `specs/openapi.yaml` |
 | Agent event stream                                            | SSE hub buffer + browser | Session                | 4 event types per `specs/events-schema.json`                        |
-| Findings (vulnerabilities, smells) with Before/After snippets | In-memory Map            | Session                | Consumed by `mfe-metrics` drawer/dashboard                          |
+| Findings (review items) with proposed Before/After snippets | In-memory Map | Session                | Consumed by `mfe-metrics`; After is a manual suggestion, never applied to repository files |
 | Health score / severity distribution                          | Derived client-side      | Session                | Computed in `mfe-metrics` from received events                      |
 | Final report                                                  | **Exported file**        | Persistent (user-side) | Markdown export is the only durable artifact of an audit            |
 
@@ -31,6 +31,7 @@ The SSE event payloads are contractually defined in `specs/events-schema.json` (
 - Before any LLM request, exclude known sensitive files and redact detected secrets from the exact snippet to be sent. The implementation uses the offline `@secretlint/core` engine and recommended Secretlint rules, without source-controlled ignore comments. If the detector/redactor is unavailable, returns invalid ranges, or fails, do not send that snippet; report a sanitized outcome without including secret values.
 - Apply the same outbound-data hygiene to generated findings, SSE events, and logs so a model response cannot reintroduce a detected secret into the UI or server output.
 - `SENTINEL_ALLOWED_REPO_ROOTS` limits local repository access. Canonicalized repository and traversed file paths must remain beneath an allowed root.
+- Remote Git clones are temporary and removed after source reading. Findings do not modify local repositories, and cloned repositories are not retained for applying suggestions.
 - Secret detection is defense in depth, not a guarantee of complete detection. The operator remains responsible for choosing an acceptable provider and repository scope.
 - No personal data is processed by the platform.
 
