@@ -105,7 +105,7 @@ In-memory only for the MVP: audit definitions, live event buffers, and final res
 - The unauthenticated PoC API binds only to loopback. A non-loopback deployment is out of scope until authentication and authorization are designed and implemented. CORS is browser policy, not an access-control boundary.
 - Local filesystem audits require `SENTINEL_ALLOWED_REPO_ROOTS`. An unset or empty value disables local-path audits. Both configured roots and requested paths are canonicalized; a resolved path or traversed symlink outside every allowed root is rejected before audit creation.
 - The Agent Engine is the only component allowed to send code to an LLM. Local Ollama is the default. Any non-loopback LLM endpoint is external and requires `SENTINEL_ALLOW_EXTERNAL_LLM=true` in server configuration.
-- Known sensitive files are excluded and detected secrets are redacted before a snippet is sent to any provider. If detection or redaction fails, that snippet is not sent. Sanitized events and logs must not contain secret values. Detection is best-effort and must not be presented as a guarantee that all secrets are discoverable.
+- Known sensitive files are excluded and detected secrets are redacted before a snippet is sent to any provider. The API uses the offline `@secretlint/core` engine with the recommended Secretlint rule set, while disabling source-controlled ignore comments. If detection or redaction fails, that snippet is not sent. Sanitized events and logs must not contain secret values. Detection is best-effort and must not be presented as a guarantee that all secrets are discoverable; the maintained exclusion list and residual risk are documented in the root README.
 
 ## 6.4 Real-Time Communication Flow
 

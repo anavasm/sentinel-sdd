@@ -28,7 +28,7 @@ The SSE event payloads are contractually defined in `specs/events-schema.json` (
 
 - Audited source code is **confidential** (NFR-S2 in `03-nfr.md` §3.4).
 - Local Ollama is the default analysis provider. External LLM transmission is disabled unless the server operator explicitly enables it with `SENTINEL_ALLOW_EXTERNAL_LLM=true`.
-- Before any LLM request, exclude known sensitive files and redact detected secrets from the exact snippet to be sent. If the detector/redactor is unavailable or fails, do not send that snippet; report a sanitized outcome without including secret values.
+- Before any LLM request, exclude known sensitive files and redact detected secrets from the exact snippet to be sent. The implementation uses the offline `@secretlint/core` engine and recommended Secretlint rules, without source-controlled ignore comments. If the detector/redactor is unavailable, returns invalid ranges, or fails, do not send that snippet; report a sanitized outcome without including secret values.
 - Apply the same outbound-data hygiene to generated findings, SSE events, and logs so a model response cannot reintroduce a detected secret into the UI or server output.
 - `SENTINEL_ALLOWED_REPO_ROOTS` limits local repository access. Canonicalized repository and traversed file paths must remain beneath an allowed root.
 - Secret detection is defense in depth, not a guarantee of complete detection. The operator remains responsible for choosing an acceptable provider and repository scope.
