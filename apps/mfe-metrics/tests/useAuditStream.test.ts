@@ -56,6 +56,18 @@ function completedEvent(id: number): SentinelAISSEEventContract {
   };
 }
 
+function runningSnapshot(lastEventId = 0): Response {
+  return new Response(JSON.stringify({
+    auditId: AUDIT_ID,
+    status: 'running',
+    config: { localPath: '/tmp/repo' },
+    createdAt: '2026-09-23T10:00:00.000Z',
+    findings: [],
+    lastEventId,
+    firstAvailableEventId: lastEventId === 0 ? null : 1,
+  }), { status: 200 });
+}
+
 function emitJson(event: SentinelAISSEEventContract): void {
   MockEventSource.lastInstance?.simulateOpen();
   MockEventSource.lastInstance?.emit(event.type, JSON.stringify(event));
@@ -183,6 +195,78 @@ describe('useAuditStream', () => {
     expect(MockEventSource.instances).toHaveLength(2);
     expect(result.current.events).toHaveLength(0);
     expect(result.current.status).toBe('CONNECTING');
+  });
+
+  it('aborts an in-flight snapshot and does not open a stale stream on unmount', async () => {
+    let resolveSnapshot: ((response: Response) => void) | undefined;
+    let requestSignal: AbortSignal | undefined;
+    vi.mocked(fetch).mockImplementationOnce((_input, init) => {
+      requestSignal = init?.signal ?? undefined;
+      return new Promise<Response>((resolve) => {
+        resolveSnapshot = resolve;
+      });
+    });
+
+    const { unmount } = renderHook(() => useAuditStream(AUDIT_ID));
+    await waitFor(() => expect(vi.mocked(fetch)).toHaveBeenCalledTimes(1));
+
+    unmount();
+    expect(requestSignal?.aborted).toBe(true);
+
+    await act(async () => {
+      resolveSnapshot?.(runningSnapshot());
+      await Promise.resolve();
+    });
+    expect(MockEventSource.instances).toHaveLength(0);
+  });
+
+  it('ignores a stale initial snapshot when the audit route changes', async () => {
+    let resolveSnapshot: ((response: Response) => void) | undefined;
+    vi.mocked(fetch).mockImplementationOnce(() => new Promise<Response>((resolve) => {
+      resolveSnapshot = resolve;
+    }));
+
+    const { rerender } = renderHook(
+      ({ auditId: currentAuditId }: { auditId: string }) => useAuditStream(currentAuditId),
+      { initialProps: { auditId: AUDIT_ID } },
+    );
+    await waitFor(() => expect(vi.mocked(fetch)).toHaveBeenCalledTimes(1));
+
+    rerender({ auditId: 'aud_next002' });
+    await act(async () => {
+      resolveSnapshot?.(runningSnapshot());
+      await Promise.resolve();
+    });
+
+    await waitForConnection();
+    expect(MockEventSource.lastInstance?.url).toContain('/aud_next002/stream');
+    expect(MockEventSource.instances).toHaveLength(1);
+  });
+
+  it('preserves an event received while reconciling after a transport error', async () => {
+    let resolveSnapshot: ((response: Response) => void) | undefined;
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(runningSnapshot(1))
+      .mockImplementationOnce(() => new Promise<Response>((resolve) => {
+        resolveSnapshot = resolve;
+      }));
+
+    const { result } = renderHook(() => useAuditStream(AUDIT_ID));
+    await waitForConnection();
+
+    act(() => {
+      MockEventSource.lastInstance?.simulateError();
+      emitJson(fixtureThought(2));
+    });
+    expect(result.current.events.map((event) => event.id)).toEqual([2]);
+
+    await act(async () => {
+      resolveSnapshot?.(runningSnapshot(1));
+      await Promise.resolve();
+    });
+
+    expect(result.current.events.map((event) => event.id)).toEqual([2]);
+    expect(result.current.snapshot?.lastEventId).toBe(1);
   });
 
   it('deduplicates replayed IDs, sorts out-of-order events, and reports a gap', async () => {
