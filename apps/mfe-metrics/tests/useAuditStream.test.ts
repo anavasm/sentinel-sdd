@@ -217,6 +217,25 @@ describe('useAuditStream', () => {
     errorSpy.mockRestore();
   });
 
+  it('rejects a native lastEventId that differs from the envelope ID', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { result } = renderHook(() => useAuditStream(AUDIT_ID));
+    await waitForConnection();
+
+    act(() => {
+      MockEventSource.lastInstance?.simulateOpen();
+      MockEventSource.lastInstance?.emit(
+        'AGENT_THOUGHT',
+        JSON.stringify(fixtureThought(1)),
+        '2',
+      );
+    });
+
+    expect(result.current.events).toEqual([]);
+    expect(errorSpy).toHaveBeenCalledWith('Discarding invalid or inconsistent SSE frame');
+    errorSpy.mockRestore();
+  });
+
   it('treats a pre-stream 404 as terminal and does not open EventSource', async () => {
     vi.mocked(fetch).mockResolvedValueOnce(new Response('{}', { status: 404 }));
     const { result } = renderHook(() => useAuditStream(AUDIT_ID));
@@ -305,5 +324,58 @@ describe('useAuditStream', () => {
 
     await waitFor(() => expect(result.current.status).toBe('DISCONNECTED'));
     expect(MockEventSource.lastInstance?.close).toHaveBeenCalled();
+  });
+
+  it('closes an active stream and reports NOT_FOUND after a restart removes the audit', async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        auditId: AUDIT_ID,
+        status: 'running',
+        config: { localPath: '/tmp/repo' },
+        createdAt: '2026-09-23T10:00:00.000Z',
+        findings: [],
+        lastEventId: 1,
+        firstAvailableEventId: 1,
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response('{}', { status: 404 }));
+    const { result } = renderHook(() => useAuditStream(AUDIT_ID));
+    await waitForConnection();
+
+    act(() => {
+      MockEventSource.lastInstance?.simulateError();
+    });
+
+    await waitFor(() => expect(result.current.status).toBe('NOT_FOUND'));
+    expect(MockEventSource.lastInstance?.close).toHaveBeenCalled();
+  });
+
+  it('keeps a recoverable stream path after an initial server error', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(new Response('{}', { status: 503 }));
+    const { result } = renderHook(() => useAuditStream(AUDIT_ID));
+
+    await waitForConnection();
+    expect(result.current.status).toBe('ERROR');
+
+    act(() => {
+      MockEventSource.lastInstance?.simulateOpen();
+    });
+    expect(result.current.status).toBe('CONNECTED');
+  });
+
+  it('keeps a recoverable stream path when the snapshot body is invalid', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(new Response(JSON.stringify({
+      auditId: AUDIT_ID,
+      status: 'running',
+      lastEventId: 'not-an-integer',
+    }), { status: 200 }));
+    const { result } = renderHook(() => useAuditStream(AUDIT_ID));
+
+    await waitForConnection();
+    expect(result.current.status).toBe('ERROR');
+
+    act(() => {
+      MockEventSource.lastInstance?.simulateOpen();
+    });
+    expect(result.current.status).toBe('CONNECTED');
   });
 });

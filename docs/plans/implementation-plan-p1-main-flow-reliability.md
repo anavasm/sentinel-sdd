@@ -103,6 +103,8 @@ To reproduce, start Ollama and the API as described in the README, configure `SE
 
 **Phase 4 reconciliation follow-up evidence:** Stream lifecycle, snapshot validation, event reduction, and REST reconciliation now run through separate controller/accumulator functions; the React effect only adapts controller callbacks to component state. Cleanup aborts pending snapshots, removes all SSE listeners, clears handlers, and closes the source. Lower-watermark snapshots cannot overwrite newer state, and a terminal snapshot discovered during reconnection closes an open source. The expanded client suite has 40 passing tests with 96.20% statements/lines, 87.19% branches, and 100% functions; lint and typecheck pass. Real-browser latency and the remaining exhaustive reconnection matrix are still open.
 
+**Phase 4 reconnection-matrix evidence:** Added coverage for native `lastEventId` mismatches, 404 after an already-open stream, recoverable initial 5xx responses, invalid snapshot bodies, and source closure after an audit disappears on restart. The client suite now has 44 passing tests with 98.27% statements/lines, 90.69% branches, and 100% functions; lint and typecheck pass. Real-browser latency evidence and the production-level exhaustive reconnection matrix remain open.
+
 ### 4.6 Coverage Gate and Stability
 
 - Run `pnpm test` without cache to obtain a baseline per workspace and the four metrics: lines, statements, functions, and branches. Verify `include`/`exclude` and that all four `apps` workspaces actually participate.

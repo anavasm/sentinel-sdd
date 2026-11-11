@@ -60,7 +60,7 @@ export class MockEventSource {
   }
 
   /** Delivers a named SSE event to every registered listener of `eventType`. */
-  emit(eventType: string, data: string): void {
+  emit(eventType: string, data: string, lastEventId?: string): void {
     if (this.readyState === EVENT_SOURCE_READY_STATE.CLOSED) {
       throw new Error(`Cannot emit '${eventType}' — EventSource for ${this.url} is closed`);
     }
@@ -73,7 +73,7 @@ export class MockEventSource {
       }
       listener(new MessageEvent(eventType, {
         data,
-        lastEventId: parsed.id === undefined ? '' : String(parsed.id),
+        lastEventId: lastEventId ?? (parsed.id === undefined ? '' : String(parsed.id)),
       }));
     }
   }
