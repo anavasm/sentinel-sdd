@@ -462,7 +462,10 @@ describe('US-5 — Agent Runner real implementation', () => {
 
       const events = collectEvents(auditId);
       expect(JSON.stringify(events)).not.toContain(sentinelSecret);
-      expect(events.some((event) => event.type === 'AUDIT_COMPLETED')).toBe(true);
+      expect(findAuditById(auditId)?.status).toBe('failed');
+      expect(events.some(
+        (event) => event.type === 'AUDIT_COMPLETED' && event.payload.status === 'failed',
+      )).toBe(true);
       expect(
         events.some(
           (event) =>
@@ -505,6 +508,57 @@ describe('US-5 — Agent Runner real implementation', () => {
   });
 
   describe('repository source acquisition (Task 5.1)', () => {
+    it('reports when the 200-file scan limit is reached', async () => {
+      const repoDir = await mkdtemp(join(tmpdir(), 'sentinel-agent-file-limit-'));
+      try {
+        vi.stubEnv('SENTINEL_ALLOWED_REPO_ROOTS', repoDir);
+        await Promise.all(
+          Array.from({ length: 201 }, (_, index) =>
+            writeFile(join(repoDir, `file${index}.ts`), 'export const x = 1;'),
+          ),
+        );
+        const result = await new FsRepositoryReader().read(localPathConfig(repoDir));
+        expect(result.ok).toBe(true);
+        if (!result.ok) throw new Error(result.error);
+        expect(result.files).toHaveLength(200);
+        expect(result.limitations?.fileLimitReached).toBe(true);
+      } finally {
+        vi.unstubAllEnvs();
+        await rm(repoDir, { recursive: true, force: true });
+      }
+    });
+
+    it('reports skipped sensitive and oversized files and truncated snippets', async () => {
+      const repoDir = await mkdtemp(join(tmpdir(), 'sentinel-agent-limits-'));
+      try {
+        vi.stubEnv('SENTINEL_ALLOWED_REPO_ROOTS', repoDir);
+        await writeFile(join(repoDir, 'source.ts'), 'x'.repeat(2001));
+        await writeFile(join(repoDir, 'large.ts'), 'x'.repeat(65537));
+        await writeFile(join(repoDir, '.env'), 'sensitive');
+        const reader = new FsRepositoryReader();
+        const result = await reader.read(localPathConfig(repoDir));
+        expect(result.ok).toBe(true);
+        if (!result.ok) throw new Error(result.error);
+        expect(result.limitations).toMatchObject({
+          oversizedFilesSkipped: 1,
+          sensitivePathsSkipped: 1,
+        });
+        const runner = new SentinelAuditRunner({ repositoryReader: reader, llmClient: stubLlm(null) });
+        const auditId = runAudit(runner, localPathConfig(repoDir));
+        await waitForTerminal(auditId);
+        const output = collectEvents(auditId)
+          .filter((event) => event.type === 'TOOL_EXECUTION')
+          .map((event) => event.payload.output ?? '')
+          .join(' ');
+        expect(output).toContain('oversized files skipped: 1');
+        expect(output).toContain('sensitive paths skipped: 1');
+        expect(output).toContain('1 source file(s) truncated to 2000 characters');
+      } finally {
+        vi.unstubAllEnvs();
+        await rm(repoDir, { recursive: true, force: true });
+      }
+    });
+
     it('reads files from a localPath directory (real fs reader)', async () => {
       const repoDir = await mkdtemp(join(tmpdir(), 'sentinel-agent-repo-'));
       try {
@@ -705,7 +759,7 @@ describe('US-5 — Agent Runner real implementation', () => {
                 ruleId: 'test',
                 title: 'No issue',
                 severity: 'LOW',
-                filePath: 'src/auth.ts',
+                filePath: 'src/auth/queries.ts',
                 description: 'No issue',
                 beforeSnippet: 'safe',
                 afterSnippet: 'safe',
@@ -734,7 +788,7 @@ describe('US-5 — Agent Runner real implementation', () => {
 
       const result = await client.inspectSnippet(sampleInspectionRequest());
 
-      expect(result).toMatchObject({ status: 'unavailable' });
+      expect(result).toMatchObject({ status: 'skipped' });
       expect(fetchImpl).not.toHaveBeenCalled();
     });
 
@@ -762,7 +816,7 @@ describe('US-5 — Agent Runner real implementation', () => {
       const fetchImpl = (async (input: string | URL) => {
         requestedUrls.push(String(input));
         return new Response(
-          JSON.stringify({ response: JSON.stringify(sqlInjectionFinding('source.ts')) }),
+          JSON.stringify({ response: JSON.stringify(sqlInjectionFinding('src/auth/queries.ts')) }),
           { status: 200 },
         );
       }) as typeof fetch;
@@ -805,7 +859,7 @@ describe('US-5 — Agent Runner real implementation', () => {
           return new Response('unavailable', { status: 503 });
         }
         return new Response(
-          JSON.stringify({ response: JSON.stringify(sqlInjectionFinding('source.ts')) }),
+          JSON.stringify({ response: JSON.stringify(sqlInjectionFinding('src/auth/queries.ts')) }),
           { status: 200 },
         );
       }) as typeof fetch;

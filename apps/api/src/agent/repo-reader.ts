@@ -29,7 +29,16 @@ export interface RepositoryFile {
 }
 
 export type RepositoryReadResult =
-  | { readonly ok: true; readonly files: readonly RepositoryFile[] }
+  | {
+      readonly ok: true;
+      readonly files: readonly RepositoryFile[];
+      readonly limitations?: {
+        readonly fileLimitReached: boolean;
+        readonly sensitivePathsSkipped: number;
+        readonly unreadablePathsSkipped: number;
+        readonly oversizedFilesSkipped: number;
+      };
+    }
   | { readonly ok: false; readonly error: string };
 
 /** Seam so the runner is testable without a real filesystem (ASD §10.3). */
@@ -179,6 +188,12 @@ async function readDirectoryAsRepo(
     };
   }
   const files: RepositoryFile[] = [];
+  const limitations = {
+    fileLimitReached: false,
+    sensitivePathsSkipped: 0,
+    unreadablePathsSkipped: 0,
+    oversizedFilesSkipped: 0,
+  };
   const visitedDirectories = new Set([rootDir]);
   const visitedFiles = new Set<string>();
   const walk = async (directory: string): Promise<string | undefined> => {
@@ -190,10 +205,12 @@ async function readDirectoryAsRepo(
     }
     for (const entry of entries) {
       if (files.length >= MAX_FILES) {
+        limitations.fileLimitReached = true;
         return undefined; // Cap reached — stop scanning, keep what we have.
       }
       const entryPath = join(directory, entry.name);
       if (isSensitiveRepositoryPath(relativePath(rootDir, entryPath))) {
+        limitations.sensitivePathsSkipped += 1;
         continue;
       }
       if (entry.isDirectory()) {
@@ -206,12 +223,14 @@ async function readDirectoryAsRepo(
       try {
         canonicalPath = await realpath(entryPath);
       } catch {
+        limitations.unreadablePathsSkipped += 1;
         continue;
       }
       if (!isPathWithinRoots(canonicalPath, allowedRoots)) {
         return 'Repository contains a path outside configured allowed roots.';
       }
       if (isSensitiveRepositoryPath(relativePath(rootDir, canonicalPath))) {
+        limitations.sensitivePathsSkipped += 1;
         continue;
       }
 
@@ -219,6 +238,7 @@ async function readDirectoryAsRepo(
       try {
         entryStat = await stat(canonicalPath);
       } catch {
+        limitations.unreadablePathsSkipped += 1;
         continue;
       }
 
@@ -241,8 +261,13 @@ async function readDirectoryAsRepo(
       }
       visitedFiles.add(canonicalPath);
 
+      if (entryStat.size > MAX_FILE_BYTES) {
+        limitations.oversizedFilesSkipped += 1;
+        continue;
+      }
       const content = await readBoundedFile(canonicalPath);
       if (content === null) {
+        limitations.unreadablePathsSkipped += 1;
         continue; // Unreadable or oversized files are skipped, not fatal.
       }
       files.push({ filePath: relativePath(rootDir, canonicalPath), content });
@@ -260,7 +285,7 @@ async function readDirectoryAsRepo(
       error: 'No readable source files were found in the repository.',
     };
   }
-  return { ok: true, files };
+  return { ok: true, files, limitations };
 }
 
 async function readBoundedFile(filePath: string): Promise<string | null> {

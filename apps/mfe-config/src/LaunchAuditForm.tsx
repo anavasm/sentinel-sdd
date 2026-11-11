@@ -154,6 +154,17 @@ export function LaunchAuditForm(): JSX.Element {
 
       <fieldset className="space-y-2">
         <legend className="text-sm font-semibold uppercase tracking-wide text-slate-400">Rule sets</legend>
+        <p className="text-sm text-slate-300">
+          These are LLM review focuses, not specialized scanners. OWASP looks for common
+          vulnerability indications; Test Quality reviews available test code without running
+          tests or measuring coverage; Code Smells &amp; Performance looks for potential issues
+          without benchmarks.
+        </p>
+        <p className="text-sm text-slate-300">
+          Review is limited to 200 eligible files of at most 64 KiB and the first 2000 characters
+          of each file. Sensitive paths and unreadable files are skipped. Findings may include
+          false positives or miss issues; a clean result does not guarantee coverage.
+        </p>
         <FormFieldError {...optionalErrorProp(fieldErrors.ruleSets)} />
         {RULE_SET_CHECKBOXES.map((ruleSetCheckbox) => (
           <label key={ruleSetCheckbox.key} className="flex items-center gap-2 text-sm text-slate-200">

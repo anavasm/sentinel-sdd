@@ -37,6 +37,7 @@ describe('mfe-metrics MetricsView', () => {
     expect(screen.getByTestId('tab-Timeline')).toHaveAttribute('aria-selected', 'true');
     expect(screen.getByTestId('stream-status-badge')).toHaveTextContent('Connecting');
     expect(screen.getByText(/timeline will appear here/i)).toBeInTheDocument();
+    expect(screen.getByText(/does not measure test coverage or performance/i)).toBeInTheDocument();
   });
 
   it('streams thoughts into the timeline as they arrive', () => {

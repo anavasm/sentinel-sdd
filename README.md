@@ -99,9 +99,13 @@ Open `http://localhost:5173`. The frontend defaults to `http://localhost:3000/ap
 
 ### LLM Configuration
 
-Local Ollama is the default provider. It uses `OLLAMA_URL` (default `http://localhost:11434`) and model `llama3.2`. A non-loopback `OLLAMA_URL` is rejected unless external LLM access is explicitly enabled.
+Local Ollama is the default provider. Install and start [Ollama](https://ollama.com/), then run `ollama pull llama3.2` and verify availability with `ollama list` and `curl http://localhost:11434/api/tags`. It uses `OLLAMA_URL` (default `http://localhost:11434`) and `OLLAMA_MODEL` (default `llama3.2`). The configured model must already be installed. A non-loopback `OLLAMA_URL` is rejected unless external LLM access is explicitly enabled. Ollama unavailability or an invalid response fails the audit with a diagnostic event; model inference may take longer than the 30-second request timeout.
 
-To enable a remote HTTP provider as the primary, set `SENTINEL_ALLOW_EXTERNAL_LLM=true`, `SENTINEL_LLM_ENDPOINT`, and `SENTINEL_LLM_MODEL`. The endpoint must be an absolute HTTP(S) URL without embedded credentials and return a compatible JSON completion response. When enabled, local Ollama remains the fallback. Without the opt-in flag, remote endpoint settings are ignored and only local Ollama is used.
+The experimental generic remote HTTP adapter has not been verified against a real provider and does not implement provider-specific authentication. To opt in, set `SENTINEL_ALLOW_EXTERNAL_LLM=true`, `SENTINEL_LLM_ENDPOINT`, and `SENTINEL_LLM_MODEL`. The endpoint must be an absolute HTTP(S) URL without embedded credentials, accept `{ "model": "...", "prompt": "..." }`, and return `{ "text": "..." }`. When enabled, Ollama is the fallback. Without the opt-in flag, remote endpoint settings are ignored and only local Ollama is used.
+
+### Analysis Scope
+
+The rule categories are LLM review focuses, not dedicated scanners: OWASP looks for indications of common vulnerabilities, Test Quality reviews available test code without running tests or measuring coverage, and Code Smells & Performance looks for potential issues without benchmarking. The reader selects at most 200 eligible files, skips files over 64 KiB and sensitive or unreadable paths, and sends at most the first 2000 characters per file to the model. Audit events report detected omissions and truncation. Results can contain false positives and false negatives; no findings does not guarantee a clean repository or complete coverage.
 
 The API also supports `PORT` (default `3000`) and `ALLOWED_ORIGINS` (comma-separated browser origins; defaults to the three local MFE ports). The PoC has no authentication. Do not expose it to untrusted networks or audit source code you are not permitted to share with the configured model provider.
 

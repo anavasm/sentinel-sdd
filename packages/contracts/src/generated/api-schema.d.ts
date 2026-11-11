@@ -100,11 +100,11 @@ export interface components {
         AuditStatus: "queued" | "running" | "completed" | "failed";
         /** @description Rule categories to activate for the audit. At least one must be true. */
         RuleSets: {
-            /** @description Security vulnerabilities (OWASP Top 10). */
+            /** @description LLM review for indications of common OWASP-related vulnerabilities; not an OWASP scanner. */
             owaspTop10?: boolean;
-            /** @description Unit test quality and coverage rules. */
+            /** @description Qualitative LLM review of available test code; tests are not run and coverage is not measured. */
             testQuality?: boolean;
-            /** @description Code smells and performance rules. */
+            /** @description LLM review for potential code smells and performance issues; performance is not measured. */
             codeSmellsPerformance?: boolean;
         };
         /** @description Audit launch configuration. Exactly one repository source is required: `repoUrl` (Git URL) or `localPath` (local repository). */
@@ -116,7 +116,7 @@ export interface components {
              */
             repoUrl?: string;
             /**
-             * @description Absolute filesystem path of a local repository to audit.
+             * @description Absolute filesystem path of a local repository to audit. The API accepts it only when its canonical path is beneath a server-configured allowed root (SENTINEL_ALLOWED_REPO_ROOTS); path or symlink escapes are rejected (ADR-008).
              * @example /Users/dev/projects/sample-repo
              */
             localPath?: string;
@@ -447,7 +447,7 @@ export interface operations {
                     "application/json": components["schemas"]["AuditCreated"];
                 };
             };
-            /** @description Invalid configuration: malformed body, missing repository source, no enabled rule set, or invalid severity threshold. A local repository path that does not exist also fails here (fail fast). */
+            /** @description Invalid configuration: malformed body, missing repository source, no enabled rule set, invalid severity threshold, or a local repository path that is inaccessible or outside configured allowed roots (fail fast). */
             400: {
                 headers: {
                     [name: string]: unknown;

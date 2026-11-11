@@ -3,7 +3,7 @@ import { basename } from 'node:path';
 import type { Audit, AuditConfig, Finding, Severity } from '@sentinel/contracts';
 
 import type { LlmClient, LlmInspection, SnippetInspectionRequest } from './llm.js';
-import { createDefaultLlmClient, truncateText } from './llm.js';
+import { createDefaultLlmClient, MAX_SNIPPET_LENGTH, truncateText } from './llm.js';
 import type { RepositoryReader } from './repo-reader.js';
 import { FsRepositoryReader, sanitizeRepoUrl } from './repo-reader.js';
 import { defaultSecretSanitizer } from './secret-sanitizer.js';
@@ -132,6 +132,18 @@ export class SentinelAuditRunner implements AuditRunner {
     await this.emitToolEvent(audit.auditId, acquisitionTool, 'succeeded', {
       output: `${readResult.files.length} source file(s) read`,
     });
+    const limitations = readResult.limitations;
+    if (
+      limitations !== undefined &&
+      (limitations.fileLimitReached ||
+        limitations.sensitivePathsSkipped > 0 ||
+        limitations.unreadablePathsSkipped > 0 ||
+        limitations.oversizedFilesSkipped > 0)
+    ) {
+      await this.emitToolEvent(auditId, acquisitionTool, 'degraded', {
+        output: `Incomplete repository scan: file limit reached: ${limitations.fileLimitReached}; sensitive paths skipped: ${limitations.sensitivePathsSkipped}; unreadable paths skipped: ${limitations.unreadablePathsSkipped}; oversized files skipped: ${limitations.oversizedFilesSkipped}.`,
+      });
+    }
 
     // ── Step 2: LLM snippet inspection ─────────────────────────────────────
     this.emitThought(
@@ -145,6 +157,15 @@ export class SentinelAuditRunner implements AuditRunner {
 
     const findings: Finding[] = [];
     let skippedSnippets = 0;
+    let analyzedFiles = 0;
+    const truncatedSnippets = readResult.files.filter(
+      (file) => file.content.length > MAX_SNIPPET_LENGTH,
+    ).length;
+    if (truncatedSnippets > 0) {
+      await this.emitToolEvent(auditId, TOOL_LLM_ANALYZE, 'degraded', {
+        output: `${truncatedSnippets} source file(s) truncated to ${MAX_SNIPPET_LENGTH} characters for LLM review.`,
+      });
+    }
     for (const file of readResult.files) {
       const inspection = await this.inspectSnippet(config, file.filePath, file.content);
       if (inspection.status === 'skipped') {
@@ -169,6 +190,7 @@ export class SentinelAuditRunner implements AuditRunner {
           error: inspection.detail,
         });
       }
+      analyzedFiles += 1;
       if (inspection.finding !== null) {
         const finding = await this.sanitizeFinding(inspection.finding);
         if (finding === null) {
@@ -184,8 +206,15 @@ export class SentinelAuditRunner implements AuditRunner {
         output: `${skippedSnippets} snippet(s) skipped because they could not be safely sanitized.`,
       });
     }
+    if (analyzedFiles === 0) {
+      await this.emitToolEvent(auditId, TOOL_LLM_ANALYZE, 'failed', {
+        error: 'No source files could be safely analyzed.',
+      });
+      await this.emitTerminalFailure(auditId, 'No source files could be safely analyzed.');
+      return;
+    }
     await this.emitToolEvent(audit.auditId, TOOL_LLM_ANALYZE, 'succeeded', {
-      output: `${findings.length} finding(s) across ${readResult.files.length} file(s); ${skippedSnippets} snippet(s) skipped`,
+      output: `${findings.length} finding(s) across ${analyzedFiles} file(s) analyzed; ${skippedSnippets} snippet(s) skipped`,
     });
 
     // ── Step 3: terminal completion with generated summary ─────────────────
@@ -196,7 +225,7 @@ export class SentinelAuditRunner implements AuditRunner {
       payload: {
         status: 'completed',
         healthScore: computeHealthScore(findings),
-        summary: buildSummary(findings, readResult.files.length, enabledRuleSetNames(config).length, startedAtMs),
+        summary: buildSummary(findings, analyzedFiles, enabledRuleSetNames(config).length, startedAtMs),
       },
     });
   }

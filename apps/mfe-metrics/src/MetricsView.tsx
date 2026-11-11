@@ -56,6 +56,11 @@ export function MetricsView(): JSX.Element {
   return (
     <section aria-label="Audit execution metrics">
       <AuditSummaryHeader auditId={auditId} status={status} events={events} />
+      <p className="mt-4 text-sm text-slate-300">
+        LLM-assisted review is limited to eligible files and snippets, may miss issues or report
+        false positives, and does not measure test coverage or performance. Check the timeline for
+        skipped files and truncated snippets; no findings does not guarantee a clean repository.
+      </p>
 
       <div
         role="tablist"

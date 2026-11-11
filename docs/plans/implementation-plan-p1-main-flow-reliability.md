@@ -62,6 +62,10 @@ Phases 1 and 2 can proceed in parallel with phase 3; P1 must not be closed while
 
 **Acceptance:** a synthetic repository is audited end to end using real Ollama and an identified model, including a no-finding case; deterministic tests cover the HTTP contract, errors, and fallback without external network access. The UI and documentation make clear what each category does and does not do. The result of any real remote check is reported separately, without simulating success.
 
+**Phase 1 evidence (2026-11-11):** Ollama model selection, no-finding parsing, file identity checks, category descriptions, omission warnings, and deterministic protocol/fallback tests have been implemented. `pnpm run test --force` passed all five workspaces (207 tests), as did `pnpm lint`, `pnpm typecheck`, `pnpm build`, and contract validation. With operator approval, Ollama `0.40.16` and `llama3.2:latest` (`a80c4f17acd5`) were installed and tested locally. A synthetic repository containing only `export function add(a: number, b: number): number { return a + b; }` was audited with `owaspTop10: true` and `severityThreshold: LOW`: the real Ollama adapter returned no findings; SSE reached `AUDIT_COMPLETED` and GET reported `completed`, zero findings, and one analyzed file. The temporary API and Ollama processes were stopped afterward. This is a local smoke result, not a guarantee of model accuracy. The experimental remote adapter has not been validated against a real provider.
+
+To reproduce, start Ollama and the API as described in the README, configure `SENTINEL_ALLOWED_REPO_ROOTS` to include a directory containing only the synthetic file, and submit that directory as `localPath` with the above focus and threshold to `POST /api/v1/audits`. Follow the returned audit's `/stream` and confirm its final state with `GET /api/v1/audits/{auditId}`.
+
 ### 4.3 Removal of Automatic Remediation
 
 - Explicitly remove or disable the button and all remediation calls in `FindingCard.tsx`, `FindingsList.tsx`, and their client; show that After is a suggestion requiring review and manual application.

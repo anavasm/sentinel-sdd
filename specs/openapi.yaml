@@ -255,13 +255,13 @@ components:
       properties:
         owaspTop10:
           type: boolean
-          description: Security vulnerabilities (OWASP Top 10).
+          description: LLM review for indications of common OWASP-related vulnerabilities; not an OWASP scanner.
         testQuality:
           type: boolean
-          description: Unit test quality and coverage rules.
+          description: Qualitative LLM review of available test code; tests are not run and coverage is not measured.
         codeSmellsPerformance:
           type: boolean
-          description: Code smells and performance rules.
+          description: LLM review for potential code smells and performance issues; performance is not measured.
     AuditConfig:
       type: object
       description: >

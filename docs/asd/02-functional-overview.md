@@ -9,10 +9,10 @@ The MVP consists of three functional modules:
 ### Module A — MFE 1: Audit Configuration (`mfe-config`)
 
 - Repository selection: Git URL or local test repository.
-- Rule set customization:
-  - Security Vulnerabilities (OWASP Top 10).
-  - Unit Test Quality & Coverage.
-  - Code Smells & Performance.
+- LLM review focus selection:
+  - Indications of common OWASP-related vulnerabilities, not an OWASP scanner.
+  - Qualitative review of available test code, without executing tests or measuring coverage.
+  - Potential code smells and performance issues, without benchmarking.
 - Severity threshold filter (Low / Medium / High / Critical).
 - Audit launch button → `POST /api/v1/audits` (contract: `specs/openapi.yaml`).
 
@@ -35,7 +35,7 @@ The MVP consists of three functional modules:
 | In Scope (MVP)                                  | Out of Scope (MVP)                                           |
 | ----------------------------------------------- | ------------------------------------------------------------ |
 | Git URL or local repo audits                    | Organization-wide repo scanning, CI-integrated audits        |
-| OWASP Top 10 + code smells + test quality rules | Custom rule engines beyond the 3 rule categories             |
+| LLM review across 3 focus categories            | Specialized scanners, test coverage measurement, benchmarks  |
 | Real-time SSE streaming                         | WebSockets, event replay beyond session lifetime             |
 | AI-generated refactor snippets                  | Automatic PR creation / commit application                   |
 | Markdown report export                          | PDF/HTML exports, dashboards persistence                     |

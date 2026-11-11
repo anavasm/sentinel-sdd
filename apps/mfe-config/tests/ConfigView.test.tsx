@@ -45,6 +45,9 @@ describe('ConfigView (US-2 audit launch form)', () => {
     expect(screen.getByRole('checkbox', { name: 'OWASP Top 10' })).toBeChecked();
     expect(screen.getByRole('checkbox', { name: 'Test Quality' })).not.toBeChecked();
     expect(screen.getByRole('checkbox', { name: 'Code Smells & Performance' })).not.toBeChecked();
+    expect(screen.getByText(/not specialized scanners/)).toBeInTheDocument();
+    expect(screen.getByText(/without running tests or measuring coverage/)).toBeInTheDocument();
+    expect(screen.getByText(/first 2000 characters/)).toBeInTheDocument();
 
     // Severity threshold defaults to MEDIUM per confirmed US-2 spec.
     expect(screen.getByLabelText(/Severity threshold/)).toHaveValue('MEDIUM');

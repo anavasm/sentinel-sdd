@@ -15,8 +15,8 @@ import type { SecretSanitizer } from './secret-sanitizer.js';
  * Provider problems are explicit results, surfaced as TOOL_EXECUTION events
  * (NFR-A3) instead of HTTP errors.
  *
- * Tests inject stub `LlmClient`s (ASD §10.3); the HTTP adapters are never
- * exercised by the suite.
+ * Adapter tests use injected fetch implementations; real-provider validation
+ * requires a separate smoke test.
  */
 
 /** Code snippet handed to an LLM provider for inspection. */
@@ -96,6 +96,7 @@ const SEVERITY_RANK: Readonly<Record<Severity, number>> = {
 export function parseFindingFromLlmText(
   rawText: string,
   severityThreshold: NonNullable<AuditConfig['severityThreshold']>,
+  expectedFilePath?: string,
 ): Finding | null {
   const jsonStart = rawText.indexOf('{');
   const jsonEnd = rawText.lastIndexOf('}');
@@ -114,6 +115,12 @@ export function parseFindingFromLlmText(
   }
 
   const candidate = parsed as Record<string, unknown>;
+  if ('finding' in candidate) {
+    if (candidate.finding === null && Object.keys(candidate).length === 1) {
+      return null;
+    }
+    throw new LlmProviderError('invalid-response', 'LLM reply has an invalid finding wrapper');
+  }
   const requiredFields = [
     'ruleId',
     'title',
@@ -137,8 +144,25 @@ export function parseFindingFromLlmText(
   if (!VALID_SEVERITIES.includes(severity as Severity)) {
     throw new LlmProviderError(
       'invalid-response',
-      `LLM replied with invalid severity '${severity}'`,
+      'LLM replied with invalid severity',
     );
+  }
+  if (expectedFilePath !== undefined && candidate.filePath !== expectedFilePath) {
+    throw new LlmProviderError('invalid-response', 'LLM reply does not match the inspected file');
+  }
+  if (
+    candidate.lineNumber !== undefined &&
+    (typeof candidate.lineNumber !== 'number' ||
+      !Number.isSafeInteger(candidate.lineNumber) ||
+      candidate.lineNumber < 1)
+  ) {
+    throw new LlmProviderError('invalid-response', 'LLM reply has an invalid line number');
+  }
+  if (
+    candidate.cweId !== undefined &&
+    (typeof candidate.cweId !== 'string' || candidate.cweId.trim() === '')
+  ) {
+    throw new LlmProviderError('invalid-response', 'LLM reply has an invalid CWE identifier');
   }
   if (SEVERITY_RANK[severity as Severity] < SEVERITY_RANK[severityThreshold]) {
     return null; // Below the configured reporting threshold.
@@ -165,16 +189,17 @@ export function parseFindingFromLlmText(
 export function buildSnippetPrompt(
   request: Pick<SnippetInspectionRequest, 'filePath' | 'code' | 'ruleSets'>,
 ): string {
-  const enabledRuleSets = Object.entries(request.ruleSets)
-    .filter(([, enabled]) => enabled)
-    .map(([name]) => name)
-    .join(', ');
+  const focuses = [
+    request.ruleSets.owaspTop10 && 'Look for indications of common OWASP-related vulnerabilities.',
+    request.ruleSets.testQuality && 'Review available test code qualitatively; do not claim measured coverage.',
+    request.ruleSets.codeSmellsPerformance && 'Look for code smells and potential performance issues; do not claim measured performance.',
+  ].filter(Boolean);
   return [
-    'You are a static-analysis security auditor. Inspect the code and reply with ONE JSON object only:',
+    'Review the code for the enabled focuses. Reply with ONE JSON object only:',
     '{"ruleId":string,"title":string,"severity":"LOW"|"MEDIUM"|"HIGH"|"CRITICAL","filePath":string,',
     '"lineNumber":number,"cweId":string,"description":string,"beforeSnippet":string,"afterSnippet":string}',
-    'If no vulnerability is found reply {"finding":null}. Keep snippets short.',
-    `Enabled rule sets: ${enabledRuleSets}`,
+    'If no issue is found reply {"finding":null}. Keep snippets short and use the exact file path provided.',
+    ...focuses,
     `File: ${request.filePath}`,
     'Code:',
     truncateText(request.code),
@@ -226,19 +251,21 @@ export class HttpLlmClient implements LlmClient {
   }
 
   async inspectSnippet(request: SnippetInspectionRequest): Promise<LlmInspection> {
+    let prompt;
     try {
-      const prompt = await this.sanitizer.sanitize(
+      prompt = await this.sanitizer.sanitize(
         buildSnippetPrompt(request),
         request.filePath || 'prompt.txt',
       );
-      if (!prompt.ok) {
-        return {
-          status: 'unavailable',
-          detail: 'LLM request skipped because the prompt could not be safely sanitized.',
-        };
-      }
+    } catch {
+      return { status: 'skipped', detail: 'LLM request skipped because the prompt could not be safely sanitized.' };
+    }
+    if (!prompt.ok) {
+      return { status: 'skipped', detail: 'LLM request skipped because the prompt could not be safely sanitized.' };
+    }
+    try {
       const raw = await this.complete(prompt.content);
-      const finding = parseFindingFromLlmText(raw, request.severityThreshold);
+      const finding = parseFindingFromLlmText(raw, request.severityThreshold, request.filePath);
       return { status: 'succeeded', providerUsed: this.providerName, finding };
     } catch (error) {
       // Expected provider failure → result, never an exception (NFR-A3).
@@ -288,19 +315,27 @@ export class HttpLlmClient implements LlmClient {
 /** Local Ollama adapter (`/api/generate`, non-streaming). */
 export type OllamaLlmClientOptions = Omit<HttpLlmClientOptions, 'endpoint' | 'model'> & {
   readonly ollamaUrl?: string;
+  readonly model?: string;
 };
 
 export class OllamaLlmClient extends HttpLlmClient {
   readonly providerName = 'ollama';
 
   constructor(options: OllamaLlmClientOptions = {}) {
-    const { ollamaUrl = process.env.OLLAMA_URL ?? DEFAULT_OLLAMA_URL, ...httpOptions } = options;
+    const {
+      ollamaUrl = process.env.OLLAMA_URL ?? DEFAULT_OLLAMA_URL,
+      model = process.env.OLLAMA_MODEL ?? DEFAULT_OLLAMA_MODEL,
+      ...httpOptions
+    } = options;
+    if (model.trim() === '') {
+      throw new Error('OLLAMA_MODEL must not be empty.');
+    }
     const baseUrl = parseHttpUrl(ollamaUrl, 'OLLAMA_URL');
     const ollamaPath = baseUrl.pathname.replace(/\/+$/, '');
     super({
       ...httpOptions,
       endpoint: `${baseUrl.origin}${ollamaPath}/api/generate`,
-      model: DEFAULT_OLLAMA_MODEL,
+      model: model.trim(),
     });
   }
 
@@ -375,6 +410,7 @@ export function createDefaultLlmClient(options: DefaultLlmClientOptions = {}): L
 
   const fallback = new OllamaLlmClient({
     ollamaUrl,
+    model: env.OLLAMA_MODEL ?? DEFAULT_OLLAMA_MODEL,
     ...(options.fetchImpl !== undefined ? { fetchImpl: options.fetchImpl } : {}),
   });
   const endpoint = env.SENTINEL_LLM_ENDPOINT?.trim();
