@@ -49,6 +49,8 @@ Phases 1 and 2 can proceed in parallel with phase 3; P1 must not be closed while
 
 **Acceptance:** the `/audits/:auditId` route actually mounts metrics in jsdom, its isolated tests pass repeatedly, and `pnpm test` passes with the documented concurrency configuration and no worker crashes. If the failure cannot be reproduced, record the evidence and retain it as a risk rather than claiming the cause is resolved.
 
+**Phase 0 evidence (2026-11-11):** On Node `v24.22.1` and pnpm `9.12.0`, `pnpm run test --force` initially failed in the shell with `EventSource is not defined`; contracts (15 tests), API (118), metrics (46), and config (7) passed. The shell's isolated `App.test.tsx` reproduced the same failure. After installing the existing metrics EventSource mock in the shell test setup, the isolated route tests passed three consecutive runs, and `pnpm run test --force` passed all five workspaces without cache using the existing concurrency configuration (shell: 11 tests). Shell lint and typecheck also passed. No worker crash occurred in these runs; its previously reported cause remains unknown and is retained as a risk. These results do not establish the strict coverage gate or latency target in phases 4.6–4.7.
+
 ### 4.2 LLM Provider and Rule Semantics
 
 - Define **local Ollama** as the minimum operational provider: endpoint, Ollama version, installed model, and reproducible configuration, including configurable model selection if necessary. The real test must use synthetic code, not confidential code. Document installation, startup, diagnostics, and availability limits; an automated protocol test does not replace a real smoke test.

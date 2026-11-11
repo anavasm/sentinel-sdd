@@ -1,7 +1,8 @@
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it } from 'vitest';
 import { App } from '../src/App';
+import { MockEventSource } from '../../mfe-metrics/tests/mocks/eventSource';
 
 // Smoke tests per plan US1-AC4. The remote module specifiers are aliased to
 // the real remote sources in vitest.config.ts, so this exercises the full
@@ -22,7 +23,7 @@ describe('mfe-shell App', () => {
   });
 
   it('routes /audits/:auditId to the metrics remote', async () => {
-    render(
+    const { unmount } = render(
       <MemoryRouter initialEntries={['/audits/aud_test123']}>
         <App />
       </MemoryRouter>,
@@ -31,6 +32,27 @@ describe('mfe-shell App', () => {
     expect(
       await screen.findByRole('heading', { name: 'Audit Execution Metrics' }),
     ).toBeInTheDocument();
+
+    const eventSource = MockEventSource.lastInstance;
+    expect(eventSource?.url).toBe('http://localhost:3000/api/v1/audits/aud_test123/stream');
+
+    act(() => {
+      eventSource?.simulateOpen();
+      eventSource?.emit(
+        'AGENT_THOUGHT',
+        JSON.stringify({
+          id: 1,
+          type: 'AGENT_THOUGHT',
+          timestamp: '2026-09-23T10:00:00.000Z',
+          auditId: 'aud_test123',
+          payload: { content: 'Inspecting repository' },
+        }),
+      );
+    });
+
+    expect(screen.getByText('Inspecting repository')).toBeInTheDocument();
+    unmount();
+    expect(eventSource?.close).toHaveBeenCalledOnce();
   });
 
   it('renders the not-found fallback for unknown routes', () => {
