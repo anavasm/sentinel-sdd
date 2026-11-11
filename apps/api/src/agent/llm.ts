@@ -2,6 +2,9 @@ import { isIP } from 'node:net';
 
 import type { AuditConfig, Finding, Severity } from '@sentinel/contracts';
 
+import { defaultSecretSanitizer } from './secret-sanitizer.js';
+import type { SecretSanitizer } from './secret-sanitizer.js';
+
 /**
  * LLM abstraction layer (ASD §6.1, §5.6 — plan US-5 Task 5.1 / CONCERN-004).
  *
@@ -39,9 +42,9 @@ export class LlmProviderError extends Error {
 }
 
 /**
- * Inspection result per snippet: `degraded` means the primary provider
- * failed and the Ollama fallback produced the answer; `unavailable` means
- * every provider failed — the runner turns this into a terminal failure.
+ * Inspection result per snippet: `skipped` means content could not be
+ * sanitized safely; `degraded` means the primary provider failed and the
+ * Ollama fallback answered; `unavailable` means every provider failed.
  */
 export type LlmInspection =
   | {
@@ -55,6 +58,7 @@ export type LlmInspection =
       readonly finding: Finding | null;
       readonly detail: string;
     }
+  | { readonly status: 'skipped'; readonly detail: string }
   | { readonly status: 'unavailable'; readonly detail: string };
 
 /** Seam every LLM adapter implements (Dependency Inversion — ASD §6.3.2). */
@@ -63,8 +67,8 @@ export interface LlmClient {
   readonly providerName: string;
   /**
    * Inspects one snippet. Provider problems are expected failures returned
-   * as `unavailable` results — implementations never throw for provider
-   * issues (NFR-A3: degradation is data, not an exception).
+   * as `unavailable` results, while unsafe snippets return `skipped`.
+   * Implementations do not throw for these expected outcomes (NFR-A3).
    */
   inspectSnippet(request: SnippetInspectionRequest): Promise<LlmInspection>;
 }
@@ -189,6 +193,8 @@ export interface HttpLlmClientOptions {
   readonly timeoutMs?: number;
   /** Injectable for adapter-level tests; defaults to global fetch. */
   readonly fetchImpl?: typeof fetch;
+  /** Injectable sanitizer; defaults to the Secretlint recommended preset. */
+  readonly sanitizer?: SecretSanitizer;
 }
 
 const DEFAULT_HTTP_TIMEOUT_MS = 30_000;
@@ -209,17 +215,29 @@ export class HttpLlmClient implements LlmClient {
   protected readonly model: string;
   protected readonly timeoutMs: number;
   protected readonly fetchImpl: typeof fetch;
+  protected readonly sanitizer: SecretSanitizer;
 
   constructor(options: HttpLlmClientOptions) {
     this.endpoint = options.endpoint;
     this.model = options.model;
     this.timeoutMs = options.timeoutMs ?? DEFAULT_HTTP_TIMEOUT_MS;
     this.fetchImpl = options.fetchImpl ?? fetch.bind(globalThis);
+    this.sanitizer = options.sanitizer ?? defaultSecretSanitizer;
   }
 
   async inspectSnippet(request: SnippetInspectionRequest): Promise<LlmInspection> {
     try {
-      const raw = await this.complete(buildSnippetPrompt(request));
+      const prompt = await this.sanitizer.sanitize(
+        buildSnippetPrompt(request),
+        request.filePath || 'prompt.txt',
+      );
+      if (!prompt.ok) {
+        return {
+          status: 'unavailable',
+          detail: 'LLM request skipped because the prompt could not be safely sanitized.',
+        };
+      }
+      const raw = await this.complete(prompt.content);
       const finding = parseFindingFromLlmText(raw, request.severityThreshold);
       return { status: 'succeeded', providerUsed: this.providerName, finding };
     } catch (error) {
@@ -331,6 +349,9 @@ export class OllamaFallbackLlmClient implements LlmClient {
     }
     // Primary throttled/failed → degrade to the Ollama fallback (CONCERN-004).
     const fallbackResult = await this.fallback.inspectSnippet(request);
+    if (fallbackResult.status === 'skipped') {
+      return fallbackResult;
+    }
     if (fallbackResult.status !== 'unavailable') {
       return { ...fallbackResult, status: 'degraded', detail: primaryResult.detail };
     }

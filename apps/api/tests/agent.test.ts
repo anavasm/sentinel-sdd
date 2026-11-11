@@ -15,8 +15,13 @@ import {
   parseFindingFromLlmText,
 } from '../src/agent/llm.js';
 import type { RepositoryReadResult, RepositoryReader } from '../src/agent/repo-reader.js';
-import { FsRepositoryReader, sanitizeRepoUrl } from '../src/agent/repo-reader.js';
+import {
+  FsRepositoryReader,
+  isSensitiveRepositoryPath,
+  sanitizeRepoUrl,
+} from '../src/agent/repo-reader.js';
 import { SentinelAuditRunner } from '../src/agent/runner.js';
+import { createSecretSanitizer, defaultSecretSanitizer } from '../src/agent/secret-sanitizer.js';
 import { validateSentinelEvent } from '../src/lib/validators.js';
 import { resetSseHub, subscribeToAuditStream } from '../src/sse/hub.js';
 import { createAudit, findAuditById, resetAuditStore } from '../src/store/audits.js';
@@ -292,6 +297,213 @@ describe('US-5 — Agent Runner real implementation', () => {
     });
   });
 
+  describe('secret sanitization and sensitive-file exclusions (US-4)', () => {
+    const sentinelSecret = 'ghp_abcdefghijklmnopqrstuvwxyz0123456789';
+
+    it('matches the documented sensitive-path baseline without excluding ordinary source paths', () => {
+      const sensitivePaths = [
+        '.env',
+        '.env.local',
+        '.env-production',
+        '.aws/source.ts',
+        '.azure/source.ts',
+        '.docker/source.ts',
+        '.gnupg/source.ts',
+        '.kube/source.ts',
+        '.ssh/source.ts',
+        'credentials/source.ts',
+        'secrets/source.ts',
+        '.dockercfg',
+        '.git-credentials',
+        '.netrc',
+        '.npmrc',
+        '.pypirc',
+        'application_default_credentials.json',
+        'auth.json',
+        'credentials',
+        'credentials.json',
+        'kubeconfig',
+        'service-account.json',
+        'id_rsa',
+        'id_dsa',
+        'id_ecdsa',
+        'id_ed25519_sk',
+        'prod-private_key.ts',
+        'credentials.yaml',
+        'secrets.json',
+        'certificate.cer',
+        'certificate.cert',
+        'certificate.crt',
+        'certificate.der',
+        'certificate.jks',
+        'certificate.keystore',
+        'certificate.key',
+        'certificate.p12',
+        'certificate.p7b',
+        'certificate.p7c',
+        'certificate.pem',
+        'certificate.pfx',
+        'certificate.pkey',
+        'certificate.ppk',
+        'terraform.tfvars',
+        'terraform.tfvars.json',
+        'terraform.tfstate',
+      ];
+
+      for (const path of sensitivePaths) {
+        expect(isSensitiveRepositoryPath(path), path).toBe(true);
+      }
+      expect(isSensitiveRepositoryPath('src/credentialStore.ts')).toBe(false);
+      expect(isSensitiveRepositoryPath('src/secretary.ts')).toBe(false);
+      expect(isSensitiveRepositoryPath('src/app.config.ts')).toBe(false);
+    });
+
+    it('redacts detected credentials using the Secretlint recommended preset', async () => {
+      const result = await defaultSecretSanitizer.sanitize(
+        `const token = "${sentinelSecret}";`,
+        'src/token.ts',
+      );
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.redacted).toBe(true);
+        expect(result.content).not.toContain(sentinelSecret);
+        expect(result.content).toContain('[REDACTED]');
+      }
+    });
+
+    it('does not let source comments disable secret detection', async () => {
+      const result = await defaultSecretSanitizer.sanitize(
+        `// secretlint-disable\nconst token = "${sentinelSecret}";`,
+        'src/token.ts',
+      );
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.content).not.toContain(sentinelSecret);
+        expect(result.content).toContain('[REDACTED]');
+      }
+    });
+
+    it('skips sensitive environment, credential, private-key, and secret paths', async () => {
+      const repoDir = await mkdtemp(join(tmpdir(), 'sentinel-agent-sensitive-'));
+      try {
+        vi.stubEnv('SENTINEL_ALLOWED_REPO_ROOTS', repoDir);
+        await mkdir(join(repoDir, 'src'), { recursive: true });
+        await mkdir(join(repoDir, 'secrets'), { recursive: true });
+        await mkdir(join(repoDir, '.aws'), { recursive: true });
+        await writeFile(join(repoDir, 'src', 'safe.ts'), 'export const safe = true;', 'utf8');
+        await writeFile(join(repoDir, '.env.production.json'), '{}', 'utf8');
+        await writeFile(join(repoDir, 'credentials.json'), '{}', 'utf8');
+        await writeFile(join(repoDir, 'src', 'id_rsa.ts'), 'private key data', 'utf8');
+        await writeFile(join(repoDir, 'src', 'tls-private-key.json'), '{}', 'utf8');
+        await writeFile(join(repoDir, 'secrets', 'config.ts'), 'export const secret = 1;', 'utf8');
+        await writeFile(join(repoDir, '.aws', 'credentials.json'), '{}', 'utf8');
+        await writeFile(join(repoDir, 'server.pem'), 'private key data', 'utf8');
+        await writeFile(join(repoDir, 'server.crt'), 'certificate data', 'utf8');
+
+        const result = await new FsRepositoryReader().read(localPathConfig(repoDir));
+
+        expect(result.ok).toBe(true);
+        if (result.ok) {
+          expect(result.files.map((file) => file.filePath)).toEqual(['src/safe.ts']);
+        }
+      } finally {
+        vi.unstubAllEnvs();
+        await rm(repoDir, { recursive: true, force: true });
+      }
+    });
+
+    it('redacts provider requests and generated findings before SSE emission', async () => {
+      const requests: SnippetInspectionRequest[] = [];
+      const finding = {
+        ...sqlInjectionFinding('src/auth.ts'),
+        title: `Credential ${sentinelSecret}`,
+        description: `Detected ${sentinelSecret} in source`,
+        beforeSnippet: `const token = "${sentinelSecret}";`,
+      };
+      const runner = new SentinelAuditRunner({
+        llmClient: {
+          providerName: 'capturing-llm',
+          async inspectSnippet(request) {
+            requests.push(request);
+            return { status: 'succeeded', providerUsed: 'capturing-llm', finding };
+          },
+        },
+        repositoryReader: stubReader([
+          { filePath: 'src/auth.ts', content: `const token = "${sentinelSecret}";` },
+        ]),
+      });
+
+      const auditId = runAudit(runner, localPathConfig('/tmp/sensitive-repo'));
+      await waitForTerminal(auditId);
+
+      const events = collectEvents(auditId);
+      expect(requests).toHaveLength(1);
+      expect(requests[0]?.code).not.toContain(sentinelSecret);
+      expect(JSON.stringify(events)).not.toContain(sentinelSecret);
+      expect(findAuditById(auditId)?.findings?.[0]?.description).not.toContain(sentinelSecret);
+    });
+
+    it('fails closed and reports a sanitized skip when scanning fails', async () => {
+      const sanitizer = createSecretSanitizer(async () => {
+        throw new Error(sentinelSecret);
+      });
+      const runner = new SentinelAuditRunner({
+        llmClient: neverCalledLlm(),
+        repositoryReader: stubReader([
+          { filePath: 'src/auth.ts', content: `const token = "${sentinelSecret}";` },
+        ]),
+        secretSanitizer: sanitizer,
+      });
+
+      const auditId = runAudit(runner, localPathConfig('/tmp/sensitive-repo'));
+      await waitForTerminal(auditId);
+
+      const events = collectEvents(auditId);
+      expect(JSON.stringify(events)).not.toContain(sentinelSecret);
+      expect(events.some((event) => event.type === 'AUDIT_COMPLETED')).toBe(true);
+      expect(
+        events.some(
+          (event) =>
+            event.type === 'TOOL_EXECUTION' &&
+            event.payload.status === 'degraded' &&
+            event.payload.output?.includes('skipped'),
+        ),
+      ).toBe(true);
+    });
+
+    it('rejects invalid scanner ranges instead of returning the original text', async () => {
+      const sanitizer = createSecretSanitizer(async () => ({
+        ok: true,
+        ranges: [[0, 1000]],
+      }));
+
+      await expect(sanitizer.sanitize('short content', 'source.ts')).resolves.toEqual({
+        ok: false,
+      });
+    });
+
+    it('sanitizes diagnostics in audit events and captured logs', async () => {
+      const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const runner = new SentinelAuditRunner({
+        llmClient: neverCalledLlm(),
+        repositoryReader: {
+          async read(): Promise<RepositoryReadResult> {
+            throw new Error(`unexpected failure ${sentinelSecret}`);
+          },
+        },
+      });
+
+      const auditId = runAudit(runner, localPathConfig('/tmp/sensitive-repo'));
+      await waitForTerminal(auditId);
+
+      const events = collectEvents(auditId);
+      expect(JSON.stringify(events)).not.toContain(sentinelSecret);
+      expect(log.mock.calls.flat().join(' ')).not.toContain(sentinelSecret);
+    });
+  });
+
   describe('repository source acquisition (Task 5.1)', () => {
     it('reads files from a localPath directory (real fs reader)', async () => {
       const repoDir = await mkdtemp(join(tmpdir(), 'sentinel-agent-repo-'));
@@ -403,6 +615,9 @@ describe('US-5 — Agent Runner real implementation', () => {
     });
 
     it('strips credentials from repo URLs before echoing them into events (NFR-S2)', () => {
+      expect(sanitizeRepoUrl('https://github.com/example/repo.git?token=sentinel#readme')).toBe(
+        'https://github.com/example/repo.git',
+      );
       expect(sanitizeRepoUrl('https://user:secret-token@github.com/example/repo.git')).toBe(
         'https://github.com/example/repo.git',
       );
@@ -470,6 +685,57 @@ describe('US-5 — Agent Runner real implementation', () => {
       const result = await client.inspectSnippet(sampleInspectionRequest());
 
       expect(result.status, result.status === 'unavailable' ? result.detail : '').toBe('succeeded');
+    });
+
+    it('sanitizes the complete prompt immediately before sending it to the provider', async () => {
+      const request = {
+        ...sampleInspectionRequest(),
+        code: `const token = "ghp_abcdefghijklmnopqrstuvwxyz0123456789";`,
+      };
+      let sentPrompt = '';
+      const client = new HttpLlmClient({
+        endpoint: 'https://llm.test/complete',
+        model: 'test-model',
+        fetchImpl: (async (_input: string | URL, init?: RequestInit) => {
+          const body = JSON.parse(String(init?.body)) as { prompt: string };
+          sentPrompt = body.prompt;
+          return new Response(
+            JSON.stringify({
+              text: JSON.stringify({
+                ruleId: 'test',
+                title: 'No issue',
+                severity: 'LOW',
+                filePath: 'src/auth.ts',
+                description: 'No issue',
+                beforeSnippet: 'safe',
+                afterSnippet: 'safe',
+              }),
+            }),
+            { status: 200 },
+          );
+        }) as typeof fetch,
+      });
+
+      const result = await client.inspectSnippet(request);
+
+      expect(result.status).toBe('succeeded');
+      expect(sentPrompt).not.toContain('ghp_abcdefghijklmnopqrstuvwxyz0123456789');
+      expect(sentPrompt).toContain('[REDACTED]');
+    });
+
+    it('does not contact the provider when the prompt scanner cannot establish a safe payload', async () => {
+      const fetchImpl = vi.fn(async () => new Response('{}', { status: 200 }));
+      const client = new HttpLlmClient({
+        endpoint: 'https://llm.test/complete',
+        model: 'test-model',
+        fetchImpl: fetchImpl as typeof fetch,
+        sanitizer: createSecretSanitizer(async () => ({ ok: false })),
+      });
+
+      const result = await client.inspectSnippet(sampleInspectionRequest());
+
+      expect(result).toMatchObject({ status: 'unavailable' });
+      expect(fetchImpl).not.toHaveBeenCalled();
     });
 
     it('maps a network failure to an unavailable inspection result', async () => {

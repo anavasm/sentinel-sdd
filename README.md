@@ -105,6 +105,19 @@ To enable a remote HTTP provider as the primary, set `SENTINEL_ALLOW_EXTERNAL_LL
 
 The API also supports `PORT` (default `3000`) and `ALLOWED_ORIGINS` (comma-separated browser origins; defaults to the three local MFE ports). The PoC has no authentication. Do not expose it to untrusted networks or audit source code you are not permitted to share with the configured model provider.
 
+### Source and Secret Handling
+
+The API excludes these paths before reading repository files:
+
+- `.env`, `.env.*`, and `.env-*` files.
+- The `.aws`, `.azure`, `.docker`, `.gnupg`, `.kube`, `.ssh`, `credentials`, and `secrets` directories.
+- Credential/config filenames `.dockercfg`, `.git-credentials`, `.netrc`, `.npmrc`, `.pypirc`, `application_default_credentials.json`, `auth.json`, `credentials`, `credentials.json`, and `kubeconfig`; service-account JSON files are excluded too.
+- Private-key names (`id_rsa`, `id_dsa`, `id_ecdsa`, `id_ed25519`, and names containing `private-key`, `private_key`, or `privatekey`), filenames containing a delimited `credential(s)` or `secret(s)` component, and certificate/key files ending in `.cer`, `.cert`, `.crt`, `.der`, `.jks`, `.keystore`, `.key`, `.p12`, `.p7b`, `.p7c`, `.pem`, `.pfx`, `.pkey`, `.ppk`, `.tfvars` (including `.tfvars.json`), or `.tfstate`.
+
+Before any LLM adapter sends a prompt—including local Ollama—the API uses the offline `@secretlint/core` 13.1.x engine with `@secretlint/secretlint-rule-preset-recommend` and replaces detected ranges with `[REDACTED]`. Source-controlled Secretlint ignore comments are disabled so repository content cannot suppress detection. The same detector sanitizes generated finding fields, audit diagnostics, and log messages. Its recommended rules cover provider credentials and patterns for AWS, GCP, private keys, NPM, Basic Auth, Slack, SendGrid, Shopify, Stripe, GitHub, GitLab, Grafana, OpenAI, Anthropic, Groq, Hugging Face, Linear, Notion, 1Password, database connection strings, HashiCorp Vault, Vercel, Databricks, Docker, Figma, Cloudflare, and Tailscale.
+
+If scanning fails or returns invalid ranges, the snippet is skipped and the original content is never sent. This is a baseline, not a guarantee: custom, novel, encoded, or otherwise unrecognized secrets can remain undetected. Review repository contents and provider egress settings before each audit; external providers receive the redacted prompt only when explicitly enabled.
+
 ## Development Commands
 
 ```sh

@@ -66,6 +66,47 @@ const SOURCE_EXTENSIONS = new Set([
 /** Directory names never traversed (dependency/vendor trees, VCS internals). */
 const SKIPPED_DIRECTORIES = new Set(['.git', 'node_modules', 'dist', 'build', '.venv', 'vendor']);
 
+const SENSITIVE_DIRECTORIES = new Set([
+  '.aws',
+  '.azure',
+  '.docker',
+  '.gnupg',
+  '.kube',
+  '.ssh',
+  'credentials',
+  'secrets',
+]);
+
+const SENSITIVE_FILE_NAMES = new Set([
+  '.dockercfg',
+  '.git-credentials',
+  '.netrc',
+  '.npmrc',
+  '.pypirc',
+  'application_default_credentials.json',
+  'auth.json',
+  'credentials',
+  'credentials.json',
+  'kubeconfig',
+]);
+
+const SENSITIVE_FILE_EXTENSIONS = new Set([
+  '.cer',
+  '.cert',
+  '.crt',
+  '.der',
+  '.jks',
+  '.keystore',
+  '.key',
+  '.p12',
+  '.p7b',
+  '.p7c',
+  '.pem',
+  '.pfx',
+  '.pkey',
+  '.ppk',
+]);
+
 export interface FsRepositoryReaderOptions {
   /** Injectable git command runner; defaults to `git clone --depth 1`. */
   readonly runGit?: (args: readonly string[]) => Promise<void>;
@@ -131,6 +172,12 @@ async function readDirectoryAsRepo(
   rootDir: string,
   allowedRoots: readonly string[],
 ): Promise<RepositoryReadResult> {
+  if (isSensitiveRepositoryPath(rootDir)) {
+    return {
+      ok: false,
+      error: 'No readable source files were found in the repository.',
+    };
+  }
   const files: RepositoryFile[] = [];
   const visitedDirectories = new Set([rootDir]);
   const visitedFiles = new Set<string>();
@@ -146,6 +193,9 @@ async function readDirectoryAsRepo(
         return undefined; // Cap reached — stop scanning, keep what we have.
       }
       const entryPath = join(directory, entry.name);
+      if (isSensitiveRepositoryPath(relativePath(rootDir, entryPath))) {
+        continue;
+      }
       if (entry.isDirectory()) {
         if (SKIPPED_DIRECTORIES.has(entry.name)) {
           continue;
@@ -160,6 +210,9 @@ async function readDirectoryAsRepo(
       }
       if (!isPathWithinRoots(canonicalPath, allowedRoots)) {
         return 'Repository contains a path outside configured allowed roots.';
+      }
+      if (isSensitiveRepositoryPath(relativePath(rootDir, canonicalPath))) {
+        continue;
       }
 
       let entryStat;
@@ -227,6 +280,31 @@ function extensionOf(fileName: string): string {
   return dotIndex === -1 ? '' : fileName.slice(dotIndex).toLowerCase();
 }
 
+export function isSensitiveRepositoryPath(filePath: string): boolean {
+  const segments = filePath.replace(/\\/g, '/').split('/').filter(Boolean);
+  const fileName = segments.at(-1)?.toLowerCase() ?? '';
+  if (
+    segments.some((segment) => SENSITIVE_DIRECTORIES.has(segment.toLowerCase())) ||
+    SENSITIVE_FILE_NAMES.has(fileName) ||
+    fileName === '.env' ||
+    fileName.startsWith('.env.') ||
+    fileName.startsWith('.env-') ||
+    /^id_(rsa|dsa|ecdsa|ed25519)(_|\.|$)/.test(fileName) ||
+    /(^|[._-])(private[-_]?key|credentials?|secrets?)([._-]|$)/.test(fileName) ||
+    /^service[-_]account.*\.json$/.test(fileName)
+  ) {
+    return true;
+  }
+
+  const extension = extensionOf(fileName);
+  return (
+    SENSITIVE_FILE_EXTENSIONS.has(extension) ||
+    fileName.endsWith('.tfvars') ||
+    fileName.endsWith('.tfvars.json') ||
+    fileName.endsWith('.tfstate')
+  );
+}
+
 function relativePath(rootDir: string, filePath: string): string {
   const relative = filePath.startsWith(rootDir) ? filePath.slice(rootDir.length) : filePath;
   return relative.replace(/^[\\/]/, '');
@@ -239,7 +317,7 @@ function relativePath(rootDir: string, filePath: string): string {
 export function sanitizeRepoUrl(repoUrl: string): string {
   try {
     const url = new URL(repoUrl);
-    return `${url.protocol}//${url.host}${url.pathname}${url.search}`;
+    return `${url.protocol}//${url.host}${url.pathname}`;
   } catch {
     return repoUrl.split('@').at(-1) ?? repoUrl;
   }

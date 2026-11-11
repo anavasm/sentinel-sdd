@@ -18,6 +18,8 @@
   },
   "dependencies": {
     "@sentinel/contracts": "workspace:*",
+    "@secretlint/core": "~13.1.0",
+    "@secretlint/secretlint-rule-preset-recommend": "~13.1.0",
     "ajv": "^8.17.1",
     "ajv-formats": "^3.0.1",
     "cors": "^2.8.6",

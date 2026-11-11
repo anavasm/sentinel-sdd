@@ -6,6 +6,11 @@ import type { LlmClient, LlmInspection, SnippetInspectionRequest } from './llm.j
 import { createDefaultLlmClient, truncateText } from './llm.js';
 import type { RepositoryReader } from './repo-reader.js';
 import { FsRepositoryReader, sanitizeRepoUrl } from './repo-reader.js';
+import { defaultSecretSanitizer } from './secret-sanitizer.js';
+import type {
+  SecretSanitizationResult,
+  SecretSanitizer,
+} from './secret-sanitizer.js';
 import { emitAuditEvent } from '../sse/hub.js';
 import { findAuditById } from '../store/audits.js';
 
@@ -41,6 +46,8 @@ export interface SentinelAuditRunnerOptions {
   readonly llmClient?: LlmClient;
   /** Repository source reader; defaults to the fs/git implementation. */
   readonly repositoryReader?: RepositoryReader;
+  /** Content sanitizer; defaults to Secretlint's recommended rule preset. */
+  readonly secretSanitizer?: SecretSanitizer;
   /** Scheduling seam; defaults to `setImmediate` (never blocks the response). */
   readonly schedule?: (callback: () => void) => void;
 }
@@ -63,11 +70,13 @@ export interface SentinelAuditRunnerOptions {
 export class SentinelAuditRunner implements AuditRunner {
   private readonly llmClient: LlmClient;
   private readonly repositoryReader: RepositoryReader;
+  private readonly secretSanitizer: SecretSanitizer;
   private readonly schedule: (callback: () => void) => void;
 
   constructor(options: SentinelAuditRunnerOptions = {}) {
     this.llmClient = options.llmClient ?? createDefaultLlmClient();
     this.repositoryReader = options.repositoryReader ?? new FsRepositoryReader();
+    this.secretSanitizer = options.secretSanitizer ?? defaultSecretSanitizer;
     this.schedule = options.schedule ?? setImmediate;
   }
 
@@ -90,8 +99,9 @@ export class SentinelAuditRunner implements AuditRunner {
       // Engine crash guard (Task 5.2): any unexpected failure still ends the
       // stream with a terminal failed event — the hub ignores emissions for
       // audits that are already terminal, so this is safe to call blindly.
-      console.error(`[runner] audit ${audit.auditId} crashed: ${describeError(error)}`);
-      this.emitTerminalFailure(audit.auditId, `Agent engine crashed: ${describeError(error)}`);
+      const safeDetails = await this.sanitizeDiagnosticText(describeError(error));
+      console.error(`[runner] audit ${audit.auditId} crashed: ${safeDetails}`);
+      await this.emitTerminalFailure(audit.auditId, `Agent engine crashed: ${safeDetails}`);
     }
   }
 
@@ -107,17 +117,19 @@ export class SentinelAuditRunner implements AuditRunner {
 
     // ── Step 1: acquire the repository snapshot ────────────────────────────
     const acquisitionTool = config.repoUrl !== undefined ? TOOL_SOURCE_ACQUISITION : 'fs-scan';
-    this.emitToolEvent(audit.auditId, acquisitionTool, 'started', {
+    await this.emitToolEvent(audit.auditId, acquisitionTool, 'started', {
       input: sanitizedSourceInput(config),
     });
 
     const readResult = await this.repositoryReader.read(config);
     if (!readResult.ok) {
-      this.emitToolEvent(audit.auditId, acquisitionTool, 'failed', { error: readResult.error });
-      this.emitTerminalFailure(audit.auditId, `Repository could not be read: ${readResult.error}`);
+      await this.emitToolEvent(audit.auditId, acquisitionTool, 'failed', {
+        error: readResult.error,
+      });
+      await this.emitTerminalFailure(audit.auditId, `Repository could not be read: ${readResult.error}`);
       return;
     }
-    this.emitToolEvent(audit.auditId, acquisitionTool, 'succeeded', {
+    await this.emitToolEvent(audit.auditId, acquisitionTool, 'succeeded', {
       output: `${readResult.files.length} source file(s) read`,
     });
 
@@ -127,33 +139,53 @@ export class SentinelAuditRunner implements AuditRunner {
       `Analyzing ${readResult.files.length} source file(s) with ${this.llmClient.providerName}`,
       'analyze',
     );
-    this.emitToolEvent(audit.auditId, TOOL_LLM_ANALYZE, 'started', {
+    await this.emitToolEvent(audit.auditId, TOOL_LLM_ANALYZE, 'started', {
       input: { files: readResult.files.length, provider: this.llmClient.providerName },
     });
 
     const findings: Finding[] = [];
+    let skippedSnippets = 0;
     for (const file of readResult.files) {
       const inspection = await this.inspectSnippet(config, file.filePath, file.content);
+      if (inspection.status === 'skipped') {
+        skippedSnippets += 1;
+        continue;
+      }
       if (inspection.status === 'unavailable') {
         // Both providers failed (NFR-A3): failed tool event + terminal event.
-        this.emitToolEvent(audit.auditId, TOOL_LLM_ANALYZE, 'failed', { error: inspection.detail });
-        this.emitTerminalFailure(audit.auditId, `LLM analysis unavailable: ${inspection.detail}`);
+        await this.emitToolEvent(audit.auditId, TOOL_LLM_ANALYZE, 'failed', {
+          error: inspection.detail,
+        });
+        await this.emitTerminalFailure(
+          audit.auditId,
+          `LLM analysis unavailable: ${inspection.detail}`,
+        );
         return;
       }
       if (inspection.status === 'degraded') {
         // Provider throttle/failure → degraded outcome + fallback (CONCERN-004).
-        this.emitToolEvent(audit.auditId, TOOL_LLM_ANALYZE, 'degraded', {
+        await this.emitToolEvent(audit.auditId, TOOL_LLM_ANALYZE, 'degraded', {
           output: `Falling back to ${inspection.providerUsed}`,
           error: inspection.detail,
         });
       }
       if (inspection.finding !== null) {
-        this.emitFinding(audit.auditId, inspection.finding);
-        findings.push(inspection.finding);
+        const finding = await this.sanitizeFinding(inspection.finding);
+        if (finding === null) {
+          skippedSnippets += 1;
+          continue;
+        }
+        this.emitFinding(audit.auditId, finding);
+        findings.push(finding);
       }
     }
-    this.emitToolEvent(audit.auditId, TOOL_LLM_ANALYZE, 'succeeded', {
-      output: `${findings.length} finding(s) across ${readResult.files.length} file(s)`,
+    if (skippedSnippets > 0) {
+      await this.emitToolEvent(audit.auditId, TOOL_LLM_ANALYZE, 'degraded', {
+        output: `${skippedSnippets} snippet(s) skipped because they could not be safely sanitized.`,
+      });
+    }
+    await this.emitToolEvent(audit.auditId, TOOL_LLM_ANALYZE, 'succeeded', {
+      output: `${findings.length} finding(s) across ${readResult.files.length} file(s); ${skippedSnippets} snippet(s) skipped`,
     });
 
     // ── Step 3: terminal completion with generated summary ─────────────────
@@ -174,13 +206,55 @@ export class SentinelAuditRunner implements AuditRunner {
     filePath: string,
     code: string,
   ): Promise<LlmInspection> {
+    const safeFilePath = await this.sanitizeContent(filePath, 'file-path.txt');
+    const safeCode = await this.sanitizeContent(truncateText(code), filePath);
+    if (!safeFilePath.ok || !safeCode.ok) {
+      return {
+        status: 'skipped',
+        detail: 'Snippet skipped because it could not be safely sanitized.',
+      };
+    }
+
     const request: SnippetInspectionRequest = {
-      filePath,
-      code: truncateText(code),
+      filePath: safeFilePath.content,
+      code: safeCode.content,
       ruleSets: config.ruleSets ?? {},
       severityThreshold: config.severityThreshold ?? 'LOW',
     };
     return this.llmClient.inspectSnippet(request);
+  }
+
+  private async sanitizeFinding(finding: Finding): Promise<Finding | null> {
+    const sanitizedFinding = { ...finding };
+    const fields = [
+      'ruleId',
+      'title',
+      'filePath',
+      'description',
+      'beforeSnippet',
+      'afterSnippet',
+    ] as const;
+    for (const field of fields) {
+      const result = await this.sanitizeContent(
+        sanitizedFinding[field],
+        `finding-${field}.txt`,
+      );
+      if (!result.ok) {
+        return null;
+      }
+      sanitizedFinding[field] = result.content;
+    }
+    if (sanitizedFinding.cweId !== undefined) {
+      const result = await this.sanitizeContent(
+        sanitizedFinding.cweId,
+        'finding-cwe.txt',
+      );
+      if (!result.ok) {
+        return null;
+      }
+      sanitizedFinding.cweId = result.content;
+    }
+    return sanitizedFinding;
   }
 
   private emitThought(auditId: string, content: string, step: string): void {
@@ -192,12 +266,25 @@ export class SentinelAuditRunner implements AuditRunner {
     });
   }
 
-  private emitToolEvent(
+  private async emitToolEvent(
     auditId: string,
     tool: string,
     status: 'started' | 'succeeded' | 'failed' | 'degraded',
     extras: { input?: Record<string, unknown>; output?: string; error?: string } = {},
-  ): void {
+  ): Promise<void> {
+    const sanitizedInput =
+      extras.input === undefined ? undefined : await this.sanitizeDiagnosticValue(extras.input);
+    const sanitizedOutput =
+      extras.output === undefined
+        ? undefined
+        : await this.sanitizeDiagnosticText(
+            extras.output,
+            tool === TOOL_LLM_ANALYZE && status === 'degraded'
+              ? 'One or more snippets were skipped because sanitization failed.'
+              : undefined,
+          );
+    const sanitizedError =
+      extras.error === undefined ? undefined : await this.sanitizeDiagnosticText(extras.error);
     emitAuditEvent(auditId, {
       type: 'TOOL_EXECUTION',
       timestamp: new Date().toISOString(),
@@ -205,9 +292,9 @@ export class SentinelAuditRunner implements AuditRunner {
       payload: {
         tool,
         status,
-        ...(extras.input !== undefined ? { input: extras.input } : {}),
-        ...(extras.output !== undefined ? { output: extras.output } : {}),
-        ...(extras.error !== undefined ? { error: truncateText(extras.error) } : {}),
+        ...(sanitizedInput !== undefined ? { input: sanitizedInput } : {}),
+        ...(sanitizedOutput !== undefined ? { output: sanitizedOutput } : {}),
+        ...(sanitizedError !== undefined ? { error: truncateText(sanitizedError) } : {}),
       },
     });
   }
@@ -223,13 +310,66 @@ export class SentinelAuditRunner implements AuditRunner {
     });
   }
 
-  private emitTerminalFailure(auditId: string, error: string): void {
+  private async emitTerminalFailure(auditId: string, error: string): Promise<void> {
+    const sanitizedError = await this.sanitizeDiagnosticText(error);
     emitAuditEvent(auditId, {
       type: 'AUDIT_COMPLETED',
       timestamp: new Date().toISOString(),
       auditId,
-      payload: { status: 'failed', error: truncateText(error) },
+      payload: { status: 'failed', error: truncateText(sanitizedError) },
     });
+  }
+
+  private async sanitizeDiagnosticText(text: string, fallback?: string): Promise<string> {
+    const result = await this.sanitizeContent(text, 'diagnostic.txt');
+    return result.ok
+      ? result.content
+      : (fallback ?? 'Diagnostic details omitted because they were not safe.');
+  }
+
+  private async sanitizeContent(content: string, filePath: string): Promise<SecretSanitizationResult> {
+    try {
+      const result: unknown = await this.secretSanitizer.sanitize(content, filePath);
+      if (typeof result !== 'object' || result === null || !('ok' in result)) {
+        return { ok: false };
+      }
+      if (result.ok === false) {
+        return { ok: false };
+      }
+      if (
+        result.ok !== true ||
+        !('content' in result) ||
+        typeof result.content !== 'string' ||
+        !('redacted' in result) ||
+        typeof result.redacted !== 'boolean'
+      ) {
+        return { ok: false };
+      }
+      return {
+        ok: true,
+        content: result.content,
+        redacted: result.redacted,
+      };
+    } catch {
+      return { ok: false };
+    }
+  }
+
+  private async sanitizeDiagnosticValue(value: unknown): Promise<unknown> {
+    if (typeof value === 'string') {
+      return this.sanitizeDiagnosticText(value);
+    }
+    if (Array.isArray(value)) {
+      return Promise.all(value.map((item) => this.sanitizeDiagnosticValue(item)));
+    }
+    if (typeof value === 'object' && value !== null) {
+      const sanitized: Record<string, unknown> = {};
+      for (const [key, nestedValue] of Object.entries(value)) {
+        sanitized[key] = await this.sanitizeDiagnosticValue(nestedValue);
+      }
+      return sanitized;
+    }
+    return value;
   }
 }
 
