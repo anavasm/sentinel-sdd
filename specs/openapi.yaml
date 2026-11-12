@@ -26,9 +26,35 @@ servers:
 tags:
   - name: audits
     description: Audit lifecycle (create, inspect, stream)
+  - name: internal
+    description: Internal operational endpoints
 security:
   - {} # Anonymous access is permitted only on the loopback-only PoC listener (ADR-008).
 paths:
+  /health:
+    get:
+      operationId: getHealth
+      summary: Internal API process smoke check
+      description: >
+        Internal local smoke check indicating that the API process responds.
+        This does not check the readiness of the LLM or other dependencies.
+      x-internal: true
+      tags:
+        - internal
+      responses:
+        "200":
+          description: The API process is responding.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - status
+                properties:
+                  status:
+                    type: string
+                    const: ok
   /audits:
     post:
       operationId: createAudit

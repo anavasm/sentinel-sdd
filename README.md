@@ -125,11 +125,18 @@ If scanning fails or returns invalid ranges, the snippet is skipped and the orig
 ## Development Commands
 
 ```sh
+pnpm validate
 pnpm lint
 pnpm typecheck
 pnpm test
 pnpm build
 ```
+
+`pnpm validate` is a required root gate before merging. It runs the contracts
+validator through Turborepo without caching: it checks spec syntax, validates
+SSE fixtures and negative samples, and checks that generated OpenAPI types
+are current. It does not perform comprehensive OpenAPI semantic linting. The
+current validator requires Node.js 22.6 or later for `--experimental-strip-types`.
 
 Run checks for a single workspace with, for example:
 
@@ -141,7 +148,7 @@ pnpm --filter @sentinel/contracts validate
 
 ## Contracts and Documentation
 
-- Treat `specs/openapi.yaml` and `specs/events-schema.json` as the REST/SSE contract source. Regenerate shared types after changing either spec with `pnpm --filter @sentinel/contracts generate:api` and/or `generate:events`, then run `pnpm --filter @sentinel/contracts validate` and the relevant workspace tests.
+- Treat `specs/openapi.yaml` and `specs/events-schema.json` as the REST/SSE contract source. Regenerate shared types after changing either spec with `pnpm --filter @sentinel/contracts generate:api` and/or `generate:events`, then run `pnpm validate` and the relevant workspace tests. `GET /api/v1/health` is an internal API-process smoke check, not a provider-readiness check.
 - `docs/asd/` records business context, requirements, constraints, and architecture principles. Start with [`docs/asd/ASD.md`](docs/asd/ASD.md), then load the relevant section.
 - `docs/adr/` captures accepted decisions; read the ADRs relevant to an area before changing its behavior.
 - `docs/plans/` contains detailed implementation plans and acceptance criteria.

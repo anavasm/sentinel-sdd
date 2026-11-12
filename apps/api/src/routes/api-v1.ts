@@ -9,10 +9,10 @@ import { createAuditHandler, getAuditHandler, streamAuditHandler } from './audit
  * US-2 adds `POST /audits` (fail-fast validated audit creation), US-3 adds
  * `GET /audits/:auditId` (session state lookup), and US-4 adds
  * `GET /audits/:auditId/stream` (SSE channel with resync). `GET /health` is
- * an internal smoke route from US-1 (outside the openapi contract).
+ * an internal process smoke route documented in the OpenAPI contract.
  *
  * The runner is injected so tests can disable execution (`null`); the
- * production app wires the fixture-driven stub runner (D-API-3).
+ * production app wires the LLM-backed runner.
  */
 export function createApiV1Router(runner: AuditRunner | null): ExpressRouter {
   const router: ExpressRouter = Router();

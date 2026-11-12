@@ -8,6 +8,7 @@
     "node": ">=20"
   },
   "scripts": {
+    "validate": "turbo run validate --filter=@sentinel/contracts",
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",

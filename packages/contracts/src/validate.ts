@@ -1,11 +1,12 @@
 /**
  * Contract validation gate (AC-3, ASD §9.3) — runnable as a local pipeline gate
- * via `pnpm --filter @sentinel/contracts validate` (before any app build).
+ * via `pnpm validate` (before any app build).
  *
  * Gates:
  *  1. Syntax  — openapi.yaml parses as YAML; events-schema.json parses as JSON
  *  2. Schema  — every seed fixture event validates against the draft-07 events
  *               schema (Ajv + ajv-formats), and malformed events are rejected
+ *  3. Types   — the package script checks generated OpenAPI types for drift
  *
  * Exit code 0 = contracts gate green; 1 = at least one gate failed.
  * Spectral lint is intentionally omitted (optional per plan; toolchain not installed).
@@ -119,7 +120,11 @@ function main(): number {
     }
   }
 
-  console.log(exitCode === 0 ? 'Contract validation gate: GREEN' : 'Contract validation gate: RED');
+  console.log(
+    exitCode === 0
+      ? 'Contract syntax and fixture validation: GREEN'
+      : 'Contract syntax and fixture validation: RED',
+  );
   return exitCode;
 }
 

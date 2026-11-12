@@ -17,7 +17,7 @@
   "scripts": {
     "generate:api": "openapi-typescript ../../specs/openapi.yaml -o ./src/generated/api-schema.d.ts",
     "generate:events": "json2ts -i ../../specs/events-schema.json -o ./src/generated/events.d.ts",
-    "validate": "node --experimental-strip-types ./src/validate.ts",
+    "validate": "node --experimental-strip-types ./src/validate.ts && openapi-typescript ../../specs/openapi.yaml -o ./src/generated/api-schema.d.ts --check",
     "test": "vitest run --coverage",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src/"

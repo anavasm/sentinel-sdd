@@ -15,6 +15,7 @@ For a 15-day $0 PoC, the pipeline is a set of Turborepo tasks runnable locally a
 
 ```
 pnpm install
+pnpm validate         # required contracts gate, through Turborepo
 turbo run lint        # eslint across all packages
 turbo run typecheck   # tsc --noEmit across apps/packages
 turbo run test        # vitest, coverage > 80% gate (see 10-testing.md)
@@ -28,11 +29,16 @@ turbo run build       # all apps build cleanly
 | Types | `tsc --noEmit` | Zero errors |
 | Unit/Integration | Vitest + RTL + MSW | Coverage > 80% (constraint §4.2) |
 | E2E | Playwright | 1 suite green (config → shell → metrics flow) |
-| Contracts | `/specs` validated before code | SDD acceptance criteria (see `02-functional-overview.md` §2.4) |
+| Contracts | `pnpm validate` | Spec syntax, SSE fixtures and negative samples, and current generated OpenAPI types |
 
 ## 9.3 Contract Validation Step
 
-Before application code merges, `specs/openapi.yaml` and `specs/events-schema.json` are validated (schema-lint / sample-driven checks with MSW). This is the SDD acceptance gate (constraint C-04, C-08).
+Before application code merges, run `pnpm validate` from the repository root.
+The uncached Turborepo task checks OpenAPI YAML and SSE JSON syntax, validates
+SSE fixtures and negative samples against the event schema, and checks generated
+OpenAPI types for drift. It does not perform comprehensive OpenAPI semantic
+linting. Run the relevant workspace tests separately for API response and MSW
+coverage. This is the SDD acceptance gate (constraint C-04, C-08).
 
 ## 9.4 CI/CD (post-MVP)
 

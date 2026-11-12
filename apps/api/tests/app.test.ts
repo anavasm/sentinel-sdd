@@ -1,5 +1,9 @@
+import { readFileSync } from 'node:fs';
+
+import { Ajv } from 'ajv';
 import request from 'supertest';
 import { describe, expect, it } from 'vitest';
+import { parse as parseYaml } from 'yaml';
 
 import { createApp } from '../src/app.js';
 
@@ -12,6 +16,39 @@ describe('US-1 scaffolding — app boots and serves /api/v1', () => {
     expect(response.status).toBe(200);
     expect(response.headers['content-type']).toContain('application/json');
     expect(response.body).toEqual({ status: 'ok' });
+  });
+
+  it('conforms to the internal OpenAPI health response schema', async () => {
+    const specification = parseYaml(
+      readFileSync(new URL('../../../specs/openapi.yaml', import.meta.url), 'utf8'),
+    ) as {
+      servers: { url: string }[];
+      paths: {
+        '/health': {
+          get: {
+            'x-internal': boolean;
+            responses: {
+              '200': {
+                content: { 'application/json': { schema: object } };
+              };
+            };
+          };
+        };
+      };
+    };
+    const operation = specification.paths['/health'].get;
+    const schema = operation.responses['200'].content['application/json'].schema;
+    const validate = new Ajv({ allErrors: true }).compile(schema);
+    const response = await request(createApp()).get('/api/v1/health');
+
+    expect(new URL(specification.servers[0]?.url ?? '').pathname).toBe('/api/v1');
+    expect(operation['x-internal']).toBe(true);
+    expect(response.status).toBe(200);
+    expect(response.headers['content-type']).toContain('application/json');
+    expect(validate(response.body), JSON.stringify(validate.errors)).toBe(true);
+    expect(validate({})).toBe(false);
+    expect(validate({ status: 'unavailable' })).toBe(false);
+    expect(validate({ status: 'ok', extra: true })).toBe(false);
   });
 
   it('does not expose the x-powered-by header', async () => {
