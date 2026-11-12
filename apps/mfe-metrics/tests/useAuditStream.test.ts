@@ -157,6 +157,35 @@ describe('useAuditStream', () => {
     expect(eventSource?.readyState).toBe(2 /* CLOSED */);
   });
 
+  it('reconciles the terminal audit snapshot after the completion event', async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(runningSnapshot())
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        auditId: AUDIT_ID,
+        status: 'completed',
+        config: { localPath: '/tmp/repo' },
+        createdAt: '2026-09-23T10:00:00.000Z',
+        findings: [{ ...fixtureFinding(1).payload, eventId: 1 }],
+        lastEventId: 2,
+        firstAvailableEventId: 1,
+        summary: { healthScore: 72 },
+      }), { status: 200 }));
+    const { result } = renderHook(() => useAuditStream(AUDIT_ID));
+    await waitForConnection();
+
+    act(() => {
+      emitJson(fixtureFinding(1));
+      emitJson(completedEvent(2));
+    });
+
+    await waitFor(() => {
+      expect(result.current.snapshot?.status).toBe('completed');
+    });
+    expect(result.current.snapshot?.summary?.healthScore).toBe(72);
+    expect(result.current.snapshot?.findings).toHaveLength(1);
+    expect(vi.mocked(fetch)).toHaveBeenCalledTimes(2);
+  });
+
   it('closes the EventSource on unmount', async () => {
     const { unmount } = renderHook(() => useAuditStream(AUDIT_ID));
     await waitForConnection();

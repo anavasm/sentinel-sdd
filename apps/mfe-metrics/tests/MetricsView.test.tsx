@@ -77,6 +77,9 @@ describe('mfe-metrics MetricsView', () => {
       within(findingsPanel).getByTestId('finding-severity'),
     ).toHaveTextContent('HIGH');
     expect(screen.getByTestId('findings-counter-HIGH')).toHaveTextContent('1 HIGH');
+    expect(
+      within(screen.getByTestId('severity-distribution-HIGH')).getByRole('cell'),
+    ).toHaveTextContent('1');
   });
 
   it('renders every event type in the All Events tab', async () => {

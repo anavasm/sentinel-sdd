@@ -9,8 +9,10 @@ import { useParams } from 'react-router-dom';
 import type { SentinelAISSEEventContract } from '@sentinel/contracts';
 import { snapshotFindings, useAuditStream } from './hooks/useAuditStream';
 import { AuditSummaryHeader } from './components/AuditSummaryHeader';
+import { AuditReportExport } from './components/AuditReportExport';
 import { EventTimeline } from './components/EventTimeline';
 import { FindingsList } from './components/FindingsList';
+import { SeverityDistributionChart } from './components/SeverityDistributionChart';
 import { extractFindings, extractTimelineEvents } from './lib/dashboard';
 
 const TABS = ['Timeline', 'Findings', 'All Events'] as const;
@@ -62,6 +64,8 @@ export function MetricsView(): JSX.Element {
         snapshot={snapshot}
         gapDetected={gapDetected}
       />
+      <AuditReportExport audit={snapshot} />
+      <SeverityDistributionChart findings={findings} />
       <p className="mt-4 text-sm text-slate-300">
         LLM-assisted review is limited to eligible files and snippets, may miss issues or report
         false positives, and does not measure test coverage or performance. Check the timeline for

@@ -71,6 +71,17 @@ export function orderedSeverityCounters(
   }));
 }
 
+/** Returns a complete, stable severity distribution, including zero counts. */
+export function severityDistribution(
+  findings: readonly Finding[],
+): { severity: Severity; count: number }[] {
+  const counters = countFindingsBySeverity(findings);
+  return SEVERITY_ORDER.map((severity) => ({
+    severity,
+    count: counters[severity] ?? 0,
+  }));
+}
+
 /**
  * Terminal event of the stream, if it has arrived yet. The payload is the
  * health-score / summary source for the header (US4 terminal state).

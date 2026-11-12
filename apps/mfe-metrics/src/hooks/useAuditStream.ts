@@ -240,6 +240,7 @@ function createStreamController(
     if (parsed.type === TERMINAL_EVENT_TYPE) {
       callbacks.setStatus('DISCONNECTED');
       eventSource?.close();
+      void reconcile();
     }
   };
 
