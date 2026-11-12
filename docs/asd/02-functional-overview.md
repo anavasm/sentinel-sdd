@@ -18,9 +18,9 @@ The MVP consists of three functional modules:
 
 ### Module B — MFE 2: Live Console & Metrics Dashboard (`mfe-metrics`)
 
-- **Live Agent Console (SSE):** streaming event feed from the agent ("Cloning repo", "Analyzing auth.ts", "Vulnerability found").
+- **Live Agent Console (SSE):** streaming event feed from the agent ("Cloning repo", "Analyzing auth.ts", "Vulnerability found"). The compatibility event name `AGENT_THOUGHT` represents progress/status, not internal model reasoning.
 - **Health Dashboard:** interactive severity-distribution chart + Overall Health Score (0–100).
-- **Findings viewer:** issue list with side-by-side Before/After AI-generated code suggestions for review and manual application. The PoC does not modify repository files.
+- **Findings viewer:** issue list with side-by-side Before/After AI-generated code suggestions for review and manual application outside Sentinel. The PoC has no Apply Fix action and does not modify files, generate downloadable patches, or create PRs or commits.
 - **Report export:** final audit report in Markdown format.
 
 ### Module C — Agent Engine & Specification (SDD)
@@ -37,7 +37,7 @@ The MVP consists of three functional modules:
 | Git URL or local repo audits                    | Organization-wide repo scanning, CI-integrated audits        |
 | LLM review across 3 focus categories            | Specialized scanners, test coverage measurement, benchmarks  |
 | Real-time SSE streaming                         | WebSockets, event replay beyond session lifetime             |
-| AI-generated code suggestions for manual review | Automatic file modification, PR creation, or commit application |
+| AI-generated code suggestions for manual review | Apply Fix, file modification, patch download, PR creation, or commit application |
 | Markdown report export                          | PDF/HTML exports, dashboards persistence                     |
 | In-memory audit session storage                 | Database persistence, audit history                          |
 | No-auth PoC restricted to loopback (NFR-S1/S4)  | Shared/remote deployment, real authentication, multi-tenancy |

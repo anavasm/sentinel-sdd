@@ -11,13 +11,13 @@
 export type SentinelAISSEEventContract =
   AgentThoughtEvent | ToolExecutionEvent | VulnerabilityFoundEvent | AuditCompletedEvent;
 /**
- * Agent reasoning step, streamed live to the console (e.g. 'Analyzing auth.ts for injection sinks').
+ * Audit progress or status update streamed to the console (e.g. 'Analyzing auth.ts for injection sinks'); not internal model reasoning.
  */
 export type AgentThoughtEvent = CommonEnvelope & {
   type?: "AGENT_THOUGHT";
   payload?: {
     /**
-     * Free-form reasoning text shown in the live console.
+     * Progress or status text shown in the live console, not internal model reasoning.
      */
     content: string;
     /**

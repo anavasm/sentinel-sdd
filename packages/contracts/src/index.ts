@@ -5,8 +5,8 @@
  *  - api-schema.d.ts  ← specs/openapi.yaml       (openapi-typescript)
  *  - events.d.ts      ← specs/events-schema.json (json-schema-to-typescript)
  *
- * Downstream apps import from here; contract changes force a regeneration
- * (drift is impossible by construction — docs/asd/08-data-architecture.md §8.3).
+ * Downstream apps import from here; regenerate after contract changes and run
+ * the contract gate and relevant tests to reduce drift.
  */
 
 // ── Events (specs/events-schema.json) ────────────────────────────────────────

@@ -4,11 +4,11 @@
 
 ## 5.1 Spec-First, Contracts Before Code
 
-Every cross-boundary interaction (REST, SSE) is specified in `/specs` and validated **before** application source code is written (see `02-functional-overview.md` §2.4). MSW mocks are generated against these contracts, so frontend and backend can evolve in parallel.
+Every cross-boundary interaction (REST, SSE) is specified in `/specs` (see `02-functional-overview.md` §2.4). Contract-based mocks and fixtures support parallel frontend and backend work; validation and tests are needed to keep them aligned.
 
 ## 5.2 One Language, One Repo
 
-TypeScript everywhere — MFEs, shell, backend, agent engine — in a single pnpm + Turborepo monorepo. Shared types eliminate contract drift between frontend and backend (see `04-constraints.md` §4.1 C-03/C-05).
+TypeScript everywhere — MFEs, shell, backend, agent engine — in a single pnpm + Turborepo monorepo. Shared generated types reduce contract drift but do not replace runtime validation and tests (see `04-constraints.md` §4.1 C-03/C-05).
 
 ## 5.3 Simplicity Over Premature Scale
 
@@ -16,7 +16,7 @@ This is a 15-day, $0 PoC: in-memory persistence, no-auth, single local environme
 
 ## 5.4 Streaming-First User Experience
 
-The agent is observable by design: every thought, tool execution, and finding is an event on the SSE channel, rendered live. Latency of the channel (< 500ms) is a first-class NFR (see `03-nfr.md` §3.1).
+The agent is observable by design: progress updates, tool executions, and findings are events on the SSE channel, rendered live. `AGENT_THOUGHT` denotes progress, not internal model reasoning. Latency of the channel (< 500ms) is a first-class NFR (see `03-nfr.md` §3.1).
 
 ## 5.5 Actionable Output Over Noise
 

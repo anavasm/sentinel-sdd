@@ -2,12 +2,48 @@
 
 > Work item: "Implement the frontend application of the DevSecOps Sentinel AI MVP as three Microfrontends (`apps/mfe-shell`, `apps/mfe-config`, `apps/mfe-metrics`) wired via Vite Module Federation, consuming `@sentinel/contracts` directly and the backend endpoints shipped in `@sentinel/api` (`specs/openapi.yaml` + `specs/events-schema.json`)."
 > Generated: 2026-09-29 · Source docs: `docs/PROJECT_BRIEF.md`, `docs/ARCHITECTURE.md`, `docs/asd/*`, `specs/openapi.yaml`, `specs/events-schema.json`, `packages/contracts/*`, `docs/plans/implementation-plan-apps-api.md` (decisions D-API-1..6 inherited), backend ADRs `docs/adr/ADR-001..004`
-> Position in roadmap: **fourth milestone** — unblocked by the shipped `@sentinel/api` (all 3 REST/SSE endpoints green, US-1..US-5 backend plan completed). This milestone unblocks the Playwright E2E suite (ASD §10.4) and closes the MVP vertical slice end-to-end.
-> Status: **Planning — NOT committed** (left uncommitted for manual review; no application source code written yet).
+> Position in roadmap: historical frontend implementation plan, followed by P1 reliability and P2 MVP completion.
+> Status: **Implemented in part; reconciled during P2.** The status matrix below is current. Sections 1–12 preserve the original proposals and acceptance criteria as historical context, not as descriptions of current code or current scope. Where they conflict, the matrix, P1/P2 plans and ADR-005–007 take precedence. In particular, shared Ajv validators, React Hook Form, TanStack Query, automatic remediation and a one-command full-stack startup are not current behavior.
+
+## Current implementation status
+
+The flow runs through the three MFEs and API. P2 added the chart, terminal Markdown report and deterministic browser flow. The entries below distinguish delivered behavior from original task details that were changed or remain unverified; they do not assert that every historical acceptance criterion or final P2 gate has passed.
+
+| Story / task | Status and evidence |
+| --- | --- |
+| US-1 / 1.1 | Implemented: three workspaces, Vite federation and per-workspace Tailwind. See their Vite configs and `apps/mfe-shell/src/App.tsx`. |
+| 1.2 | Adjusted: ports and API CORS exist; `pnpm dev` starts only the MFEs, and `pnpm --filter @sentinel/api dev` starts the API separately. |
+| 1.3 | Implemented: shell routes, lazy remotes and fallback in `apps/mfe-shell/src/App.tsx`. |
+| 1.4 | Adjusted: API fetch and Problem helpers live in `packages/contracts/src/api-client.ts`; the shell seam is not federated to remotes. |
+| 1.5 | Implemented for the current topology: shell/component tests and `tests/e2e/audit-flow.spec.ts` exercise real federation; full quality gates remain P2 closure work. |
+| US-2 / 2.1 | Adjusted: `apps/mfe-config/src/lib/auditForm.ts` implements selected fail-fast checks, not a shared Ajv/React Hook Form resolver; server validation is authoritative. |
+| 2.2 | Implemented: `apps/mfe-config/src/LaunchAuditForm.tsx`; default severity is MEDIUM, not the originally proposed LOW. |
+| 2.3 | Adjusted: local React state and contracts API client replace the planned TanStack mutation; navigation and Problem handling are implemented. |
+| 2.4 | Implemented with config tests in `apps/mfe-config/tests/ConfigView.test.tsx`; complete parity with every originally proposed server validation rule is not claimed. |
+| US-3 / 3.1 | Implemented as `apps/mfe-metrics/src/hooks/useAuditStream.ts`, not `useAgentStream`; lifecycle uses the actual hook statuses. |
+| 3.2 | Implemented with ID-based deduplication and sorting; unlike the original wording, late accepted events can reorder the rendered list. |
+| 3.3 | Adjusted: native automatic reconnect, snapshot reconciliation and gap indication are implemented; no separate manual reconnect cursor mechanism is claimed. |
+| 3.4 | Adjusted: structural/envelope checks discard and log invalid frames; no client Ajv, dev-only throw or anomaly counter. Full schema equivalence is not claimed. |
+| 3.5 | Partial: terminal events and terminal snapshots close the stream; the proposed bounded-backoff/manual-retry behavior is not implemented. |
+| 3.6 | Implemented tests use deterministic EventSource and fetch mocks in `apps/mfe-metrics/tests/useAuditStream.test.ts`, not the originally proposed MSW stream; full browser flows are separately covered. |
+| US-4 / 4.1 | Adjusted: `EventTimeline.tsx` renders progress and tool events in chronological order, not the planned reverse-chronological feed. |
+| 4.2 | Implemented status and degradation indicators in the timeline and metrics view; the original tooltip details are not asserted as delivered. |
+| 4.3 | Implemented live findings and terminal states in `MetricsView.tsx` and `FindingsList.tsx`. |
+| 4.4 | Implemented snapshot reconciliation and event/findings merge in `useAuditStream.ts` and `dashboard.ts`. |
+| 4.5 | Implemented focused timeline, hook and metrics tests; real browser flow is covered in `tests/e2e/audit-flow.spec.ts`. |
+| US-5 / 5.1 | Partial relative to the original task: `FindingCard.tsx` displays metadata and Before/Suggested After panels for manual review; line numbers within snippets and per-panel copy buttons are not implemented. |
+| 5.2 | Implemented in P2: health summary and severity distribution in `AuditSummaryHeader.tsx` and `SeverityDistributionChart.tsx`, with component tests. |
+| 5.3 | Implemented in P2: `markdownReport.ts` generates a report from the terminal audit snapshot and `AuditReportExport.tsx` downloads it; unit and browser tests cover the export. |
+| 5.4 | Implemented failed terminal state in `MetricsView.tsx`; the originally proposed dedicated return link is not claimed. |
+| 5.5 | Implemented focused finding, summary, chart, export and metrics tests; see `apps/mfe-metrics/tests/`. |
+
+**Acceptance status:** US-1 and US-2 core flows, US-3 stream lifecycle, US-4 live presentation and US-5 terminal reporting are implemented with the deviations above. Original criteria requiring full client schema validation (US3-AC5), all originally specified detail controls (task 5.1), bounded retry (task 3.5), or blanket proof of every historical edge case are not marked complete. The P2 final quality-gate run and any unverified coverage targets remain open in [the P2 plan](./implementation-plan-p2-mvp-completion-and-contract-alignment.md). Browser test evidence is deterministic and does not establish real-provider behavior.
+
+**Resolved decisions:** client-side Markdown export; Recharts only in metrics; contract API helpers instead of shell-exported helpers; client structural checks rather than shared Ajv; local state instead of TanStack Query. API CORS for local ports is implemented. Suggested After content is manual-only; no Apply Fix, file mutation, patch download, PR or commit is in scope. `AGENT_THOUGHT` is a progress event, not internal model reasoning.
 
 ---
 
-## 1. Executive Summary
+## 1. Executive Summary (historical proposal)
 
 Build the frontend of the MVP as a **Module Federation microfrontend system** honoring constraint C-01:
 
@@ -419,7 +455,7 @@ Estimated total: ~7–9 developer-days (US-3 is the critical path).
 - **C-01 vs. the original "apps/web" work item:** flagged, sanity-checked, and resolved by the user — **strict C-01 honored** (shell + 2 remotes). Recorded as plan decision D-WEB-1 and formalized in **ADR-005**. No unresolved friction remains.
 - Gaps the ASD is silent on (dev ports, client-side validation reuse, client-side Markdown export) are tracked as D-WEB-2..6 in Section 4, not friction.
 
-## 12. Contracts Consumption Reference (normative for the MFEs)
+## 12. Contracts Consumption Reference (historical proposal)
 
 ```ts
 // Types — compile-time only, from the contracts barrel (packages/contracts/src/index.ts):

@@ -1,11 +1,6 @@
 /**
- * Contract-derived client-side validation for the audit launch form
- * (US-2 Task 2.1 / D-WEB-4 / ADR-007). The rules mirror what the backend
- * enforces on AuditConfig (specs/openapi.yaml) so invalid requests fail fast
- * client-side — no network call is made for a config the server must reject:
- *   - repoUrl XOR localPath (exactly one repository source)
- *   - repoUrl must be a valid URI (format: uri)
- *   - ruleSets: at least one true (additionalProperties: false server-side)
+ * Fail-fast form validation for selected AuditConfig constraints.
+ * The API remains responsible for complete contract validation.
  */
 import type { AuditConfig, Severity } from '@sentinel/contracts';
 
@@ -34,9 +29,8 @@ export interface AuditFormValues {
 export type AuditFormErrors = Partial<Record<'repoUrl' | 'localPath' | 'ruleSets' | 'severityThreshold', string>>;
 
 /**
- * Fail-fast client-side validation against the same contract rules the
- * backend enforces. Returns one message per invalid field; an empty record
- * means the payload may be built and sent.
+ * Returns one message per invalid field; an empty record means the payload
+ * may be built and sent, not that it passes all server-side checks.
  */
 export function validateAuditFormValues(values: AuditFormValues): AuditFormErrors {
   const errors: AuditFormErrors = {};

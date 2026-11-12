@@ -16,11 +16,12 @@ For a 15-day $0 PoC, the pipeline is a set of Turborepo tasks runnable locally a
 ```
 pnpm install
 pnpm validate         # required contracts gate, through Turborepo
-turbo run lint        # eslint across all packages
-turbo run typecheck   # tsc --noEmit across apps/packages
-turbo run test        # vitest, coverage > 80% gate (see 10-testing.md)
+pnpm lint             # eslint across all packages
+pnpm typecheck        # Playwright files and workspace types
+pnpm test             # vitest (see 10-testing.md)
 pnpm test:e2e:flow    # Playwright: config → shell → metrics with test-only runner
-turbo run build       # all apps build cleanly
+pnpm test:e2e:latency # P1 latency; run separately from flow (shared ports)
+pnpm build            # all apps build cleanly
 ```
 
 | Gate | Tool | Blocking rule |
@@ -44,6 +45,10 @@ SSE fixtures and negative samples against the event schema, and checks generated
 OpenAPI types for drift. It does not perform comprehensive OpenAPI semantic
 linting. Run the relevant workspace tests separately for API response and MSW
 coverage. This is the SDD acceptance gate (constraint C-04, C-08).
+
+For development, `pnpm dev` starts only the shell and the two remotes. Start
+the API in a separate terminal with `pnpm --filter @sentinel/api dev`; see the
+README for security configuration and prerequisites.
 
 ## 9.4 CI/CD (post-MVP)
 

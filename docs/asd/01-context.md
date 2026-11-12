@@ -22,7 +22,7 @@ Engineering teams spend significant time manually reviewing Pull Requests or tri
 
 ### Strategic Differentiator
 
-- **Real-time observability:** the agent's reasoning and actions stream live via SSE (log transport latency < 500ms — see `03-nfr.md` §3.1).
+- **Real-time observability:** audit progress and actions stream live via SSE (log transport latency < 500ms — see `03-nfr.md` §3.1). `AGENT_THOUGHT` carries progress, not internal model reasoning.
 - **Actionable findings over noise:** each finding includes a suggested After snippet for review; applying it remains a manual user action.
 - **Modular UI:** Microfrontend architecture lets frontend teams independently evolve Configuration vs. Metrics/Analytics.
 

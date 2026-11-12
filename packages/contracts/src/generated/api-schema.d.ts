@@ -225,12 +225,12 @@ export interface components {
          * @enum {string}
          */
         severity: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
-        /** @description Agent reasoning step, streamed live to the console (e.g. 'Analyzing auth.ts for injection sinks'). */
+        /** @description Audit progress or status update streamed to the console (e.g. 'Analyzing auth.ts for injection sinks'); not internal model reasoning. */
         agentThoughtEvent: components["schemas"]["commonEnvelope"] & {
             /** @constant */
             type?: "AGENT_THOUGHT";
             payload?: {
-                /** @description Free-form reasoning text shown in the live console. */
+                /** @description Progress or status text shown in the live console, not internal model reasoning. */
                 content: string;
                 /** @description Optional label of the current audit phase (clone, analyze, report...). */
                 step?: string;
@@ -323,12 +323,12 @@ export interface components {
                     /** @description Event-specific data; shape is determined by `type`. */
                     payload: Record<string, never>;
                 };
-                /** @description Agent reasoning step, streamed live to the console (e.g. 'Analyzing auth.ts for injection sinks'). */
+                /** @description Audit progress or status update streamed to the console (e.g. 'Analyzing auth.ts for injection sinks'); not internal model reasoning. */
                 agentThoughtEvent: components["schemas"]["commonEnvelope"] & {
                     /** @constant */
                     type?: "AGENT_THOUGHT";
                     payload?: {
-                        /** @description Free-form reasoning text shown in the live console. */
+                        /** @description Progress or status text shown in the live console, not internal model reasoning. */
                         content: string;
                         /** @description Optional label of the current audit phase (clone, analyze, report...). */
                         step?: string;

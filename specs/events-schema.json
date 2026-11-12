@@ -56,7 +56,7 @@
     },
     "agentThoughtEvent": {
       "type": "object",
-      "description": "Agent reasoning step, streamed live to the console (e.g. 'Analyzing auth.ts for injection sinks').",
+      "description": "Audit progress or status update streamed to the console (e.g. 'Analyzing auth.ts for injection sinks'); not internal model reasoning.",
       "allOf": [
         { "$ref": "#/$defs/commonEnvelope" },
         {
@@ -70,7 +70,7 @@
                 "content": {
                   "type": "string",
                   "minLength": 1,
-                  "description": "Free-form reasoning text shown in the live console."
+                  "description": "Progress or status text shown in the live console, not internal model reasoning."
                 },
                 "step": {
                   "type": "string",

@@ -40,7 +40,7 @@ graph TD
 | --------------------- | --------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
 | `mfe-shell`           | Host: global layout, routing, app shell, global notification state; mounts remotes at runtime | Owns navigation; owns no domain logic                            |
 | `mfe-config`          | Remote 1: audit configuration (repo, rule sets, severity threshold); launches audits          | Owns config forms; consumes REST contract                        |
-| `mfe-metrics`         | Remote 2: live SSE console, health dashboard, refactoring drawer, Markdown export             | Owns presentation of results; consumes SSE + export API          |
+| `mfe-metrics` | Remote 2: live SSE console, health dashboard, findings viewer, Markdown export | Consumes SSE and audit snapshots; generates export client-side |
 | Express API           | REST entry point (`/api/v1`), audit lifecycle management                                      | Validates against `specs/openapi.yaml`                           |
 | SSE Event Hub         | Per-audit ordered event channel; decouples Agent Engine from HTTP connections                 | Validates events against `specs/events-schema.json`              |
 | Agent Engine (Runner) | Orchestrates audit: clone/read repo, inspect snippets via LLM, emit typed events              | Only component allowed to call the LLM                           |
@@ -54,16 +54,16 @@ graph TD
 | **Monorepo**                           | pnpm Workspaces + Turborepo (`apps/*`, `packages/*`) (constraint C-05)                           |
 | **Spec-first / contract-driven**       | `/specs` as source of truth for REST + SSE (constraint C-04)                                     |
 | **Unidirectional event streaming**     | SSE from backend to browser; agent emits, hub fans out (constraint C-02)                         |
-| **Layered lightweight backend**        | Controllers → Agent Runner → LLM abstraction (no heavy framework)                                |
+| **Layered lightweight backend**        | Route handlers → Agent Runner → LLM abstraction (no heavy framework)                             |
 
 ## 6.3 Technology Stack
 
 ### 6.3.1 PBC Role & Scope Detail
 
-- **`mfe-shell` (Host):** React, React Router, TanStack Query. Global layout, inter-MFE navigation, global notification state.
-- **`mfe-config` (Remote 1):** React, TanStack Query, React Hook Form. Audit configuration form, rule selection, severity thresholds.
-- **`mfe-metrics` (Remote 2):** React, TanStack Query, Recharts, custom SSE hook (`useAgentStream`). Live console, dashboard, refactoring drawer, Markdown export.
-- **Backend (`apps/api`):** Node.js ≥ 20, Express, TypeScript. Controllers, SSE hub, Agent Runner.
+- **`mfe-shell` (Host):** React, React Router. Layout, inter-MFE navigation and remote error handling.
+- **`mfe-config` (Remote 1):** React and local form state with independent fail-fast validation; uses the contracts API client.
+- **`mfe-metrics` (Remote 2):** React, Recharts and `useAuditStream`. Live console, dashboard, findings and client-side Markdown export.
+- **Backend (`apps/api`):** Node.js ≥ 20, Express, TypeScript. Route handlers, SSE hub, Agent Runner.
 
 ### 6.3.2 Technology Stack
 
@@ -71,8 +71,8 @@ graph TD
 | ---------------------- | ----------------------------------------------------------------------------------------------------------------- |
 | Frontend framework     | React + Vite                                                                                                      |
 | MFE composition        | `@originjs/vite-plugin-federation` (Module Federation)                                                            |
-| Server state / caching | TanStack Query (shared across MFE boundaries)                                                                     |
-| Forms (`mfe-config`)   | React Hook Form                                                                                                   |
+| Server state / caching | Local React state and fetch; no shared query cache                                                                 |
+| Forms (`mfe-config`)   | React local state and `auditForm.ts` validation                                                                    |
 | Charts (`mfe-metrics`) | Recharts                                                                                                          |
 | Backend runtime        | Node.js ≥ 20 + Express + TypeScript                                                                               |
 | Real-time channel      | Server-Sent Events (native HTTP streaming)                                                                        |
@@ -95,7 +95,7 @@ In-memory only for the MVP: audit definitions, live event buffers, and final res
 
 | Integration                 | Direction | Protocol                                                       | Contract                   | Risk handling                                                  |
 | --------------------------- | --------- | -------------------------------------------------------------- | -------------------------- | -------------------------------------------------------------- |
-| `mfe-config` → API          | Outbound  | REST (`POST /api/v1/audits`)                                   | `specs/openapi.yaml`       | MSW mocks for dev/tests                                        |
+| `mfe-config` → API          | Outbound  | REST (`POST /api/v1/audits`)                                   | `specs/openapi.yaml`       | Client tests and contract fixtures                             |
 | `mfe-metrics` → API         | Inbound   | SSE (`GET /api/v1/audits/:id/stream`)                          | `specs/events-schema.json` | `EventSource` auto-retry; in-order per audit                   |
 | Agent Engine → LLM provider | Outbound  | Local HTTP by default; external HTTP only with operator opt-in | Internal abstraction layer | Secret filtering/redaction before egress; graceful degradation |
 | Agent Engine → Git repo     | Outbound  | Git clone (URL) / filesystem (local path)                      | n/a                        | Local paths constrained to canonicalized allowed roots         |
@@ -121,12 +121,12 @@ sequenceDiagram
 
     User->>Config: Select Repo & Rules -> Click "Launch Audit"
     Config->>Server: POST /api/v1/audits
+    Server->>Agent: Start Audit Task (Async)
     Server-->>Config: 201 Created { auditId: "aud_123" }
     Config->>Shell: Redirect to /audits/aud_123
     Shell->>Metrics: Render Metrics View for "aud_123"
 
     Metrics->>Server: GET /api/v1/audits/aud_123/stream (EventSource)
-    Server->>Agent: Spawn Audit Task (Async)
 
     loop Audit Execution Stream
         Agent->>Server: Emit Step (AGENT_THOUGHT / TOOL_EXECUTION)

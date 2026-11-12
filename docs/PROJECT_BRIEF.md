@@ -16,7 +16,7 @@ Engineering teams currently spend countless hours reviewing Pull Requests manual
 
 ## 2. Core Objectives (Success KPIs)
 
-1. **Real-Time Observability:** Eliminate developer friction during audits by streaming the agent's thought process and actions live (log latency < 500ms).
+1. **Real-Time Observability:** Eliminate developer friction during audits by streaming progress updates and actions live (log latency < 500ms). `AGENT_THOUGHT` is a compatibility name for progress, not exposure of internal model reasoning.
 2. **Strict Architectural Modularization:** The user interface must adopt a **Microfrontend (MFE)** architecture, enabling distinct frontend teams to independently evolve the Configuration module and the Metrics/Analytics module.
 3. **Actionable Findings over Noise:** Rather than simply listing issues, the agent provides an **AI-generated After snippet** for human review and manual application.
 

@@ -22,7 +22,7 @@
 
 ## 8.3 Event Schema Governance
 
-The SSE event payloads are contractually defined in `specs/events-schema.json` (4 types: `AGENT_THOUGHT`, `TOOL_EXECUTION`, `VULNERABILITY_FOUND`, `AUDIT_COMPLETED`). Shared TypeScript types in the monorepo are derived from this schema so backend emitters and frontend consumers cannot drift. See `06-software-architecture.md` §6.4.
+The SSE event payloads are contractually defined in `specs/events-schema.json` (4 types: `AGENT_THOUGHT`, `TOOL_EXECUTION`, `VULNERABILITY_FOUND`, `AUDIT_COMPLETED`). `AGENT_THOUGHT` is a progress/status update, not internal model reasoning. Shared TypeScript types are generated from the schema; regeneration, contract validation and tests reduce drift but do not make it impossible. See `06-software-architecture.md` §6.4.
 
 ## 8.4 Data Privacy & Classification
 

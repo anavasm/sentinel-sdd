@@ -1,66 +1,31 @@
-# ADR-006: Frontend State Management and SSE Reconnection/Resync Strategy
+# ADR-006: Frontend State Management and SSE Reconnection/Resync
 
-- **Status:** Accepted
+- **Status:** Accepted; implementation reconciled during P2
 - **Date:** 2026-09-29
-- **Decides:** Streaming state model for the SSE audit stream in `mfe-metrics` — a custom `useAgentStream` hook over native `EventSource`, with envelope-id deduplication, in-order rendering, `Last-Event-ID` resync, and terminal-aware reconnection — and the split between TanStack Query (REST state) and the hook (stream state)
-- **Sources:** `docs/ARCHITECTURE.md` §2 (custom SSE hook), ASD §3.1 (NFR-P1 < 500ms, NFR-A2 in-order), backend ADR-001 (SSE framing, D-6, `Last-Event-ID`), backend ADR-004 (1000-event buffer), `docs/plans/implementation-plan-mfe.md` (D-WEB-1, D-WEB-5)
-- **Supersedes:** None
-- **Related:** ADR-005 (MFE topology), ADR-003 (hub as server-side validator of record), ADR-002 (degradation events)
+- **Decides:** Native `EventSource` with view-local stream state and snapshot reconciliation in `mfe-metrics`.
+- **Related:** ADR-001 (SSE framing and replay), ADR-003 (server event validation), ADR-004 (bounded buffer), ADR-005 and ADR-007.
 
-## Context
+## Context and decision
 
-`mfe-metrics` must render every SSE event within the 500ms budget (NFR-P1), strictly in order (NFR-A2), while remaining correct across reconnects. The backend contract is already fixed (ADR-001):
+The metrics view needs ordered, deduplicated events, a terminal state, and an honest indication when the bounded replay buffer cannot restore the complete timeline. Native `EventSource` supplies automatic reconnection with `Last-Event-ID`; a custom parser or global store was not needed for this PoC. The original plan proposed TanStack Query for REST state and a hook named `useAgentStream`; the implementation instead uses local React state, fetch and `useAuditStream`. TanStack Query is not installed.
 
-- Frames are `id: <n>` / `event: <type>` / `data: <JSON>` + blank line, with `retry: 5000` on connect; the envelope `id` is a monotonic per-audit sequence starting at 1 (D-6).
-- The server buffers the last 1000 events per audit, replays retained events whose IDs are greater than the `Last-Event-ID` cursor, and closes the connection after the terminal `AUDIT_COMPLETED` (D-API-6). `GET /audits/{id}` exposes `firstAvailableEventId` and `lastEventId`; clients can detect an expired cursor and reconcile the current snapshot even if no subsequent SSE event arrives. The implemented hook performs this GET before opening the stream and repeats it after transport errors.
-- Unknown audits yield a 404 Problem **before** any stream header (D-3); a client that blindly retries would loop forever against a dead session.
+`apps/mfe-metrics/src/hooks/useAuditStream.ts` fetches the audit snapshot before opening a stream and reconciles again on transport errors, invalid frames and terminal events. A snapshot showing a terminal or unknown audit prevents or closes the stream. EventSource reconnects automatically after recoverable transport errors; the server's `retry: 5000` hint and retained replay support that path. The server buffers at most 1000 events and exposes `firstAvailableEventId` and `lastEventId` in the snapshot; expired or missing events can leave a timeline gap, which is surfaced to the user. Snapshot findings and status can be recovered, but an evicted timeline cannot.
 
-Client-side alternatives considered:
+The hook checks JSON structure, event name, audit scope and native SSE ID before accepting a frame. It logs and discards malformed or inconsistent frames without logging payloads; these checks are not a full JSON Schema validator. Accepted events are deduplicated by ID and sorted; conflicting duplicates are logged. Terminal completion closes the EventSource and refreshes the final snapshot. `AGENT_THOUGHT` carries progress/status rather than internal model reasoning.
 
-1. **TanStack Query for the stream** (e.g., one cache entry per event) — rejected: query caching assumes a single current value per key; an ordered append-only log with dedup/resync semantics fights the library instead of using it.
-2. **`fetch` + manual SSE parsing** — rejected: no benefit, since the browser's native `EventSource` already performs automatic reconnection _with_ the `Last-Event-ID` header, which is exactly the resync primitive the server was built for (D-6).
-3. **Redux/Zustand global event store** — rejected: stream state is local to the metrics view; a global store adds surface without benefit (§5.3 simplicity).
+The config remote submits using the contracts API client and local form state. Metrics performs its own snapshot fetch; it does not use a query cache. See ADR-007 for the validation boundaries.
 
-## Decision
+## Implementation and verification
 
-**Two state domains, two mechanisms (D-WEB-5):**
-
-1. **REST server state → TanStack Query:** `POST /audits` (mutation in `mfe-config`), `GET /audits/{id}` (query in `mfe-metrics`, used for reconciliation), Problem parsing from the shared API client.
-2. **Stream state → `useAgentStream(auditId)` custom hook, local to `mfe-metrics`, over native `EventSource`:**
-
-   - **Connection lifecycle:** `streamStatus ∈ { connecting, open, closed, error, not-found }`, driven by `onopen`/`onerror` and REST reconciliation; a 404 closes the stream permanently while recoverable failures remain visible. The server's `retry: 5000` hint governs browser auto-reconnect.
-   - **Dedup + ordering:** an append-only reducer keyed by envelope `id` — duplicate ids are dropped; a replayed batch (after reconnect) is merged without duplicating already-rendered events; out-of-order arrivals are buffered and sorted by `id`; the already-rendered live tail is never re-ordered.
-   - **Resync:** automatic reconnection rides on the browser's native `Last-Event-ID` header (the server resumes strictly after it — ADR-001). On a manual/terminal-error reconnect the hook re-subscribes fresh; if the previous cursor is older than the server's buffer (gap detection: first replayed id > lastSeenId + 1), the hook reconciles findings via `GET /audits/{id}` and surfaces a "some early events may be missing" banner.
-   - **Client-side contract gate:** every `data:` payload is validated by a browser-compatible structural runtime validator before rendering; malformed JSON, payloads, IDs, audit scope, event names, and native `lastEventId` mismatches are discarded and logged without payload contents.
-   - **Terminal awareness:** `AUDIT_COMPLETED` (either status) sets `closed` and **cancels reconnection** — the server closes the socket itself (D-API-6), so a reconnect loop would hammer a dead session. Scope guard: events whose envelope `auditId` ≠ route param are discarded (NFR-S3).
-
-### Code references (planned placement — no code written yet; backend references are live)
-
-| Concern                   | Location                                                                                                                                                                                                           |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Hook + reducer            | `apps/mfe-metrics/src/hooks/useAgentStream.ts`                                                                                                                                                                     |
-| REST reconciliation query | `apps/mfe-metrics` — `useQuery(GET /audits/{id})` (openapi `getAudit`), Problem-typed 404 → "not found" view                                                                                                       |
-| Wire format consumed      | `@sentinel/api` `src/sse/serializer.ts` — `serializeSseFrame` (`id:`/`event:`/`data:`), `serializeSseRetryHint` (`retry: 5000`), `SSE_RESPONSE_HEADERS`; mock parity via `packages/contracts` `serializeSseEvents` |
-| Server resync semantics   | `@sentinel/api` `src/sse/hub.ts` — `parseLastEventId`, `subscribeToAuditStream` (ID-filtered replay-then-close); snapshot watermarks in `src/store/audits.ts` |
-| Server terminal close     | `@sentinel/api` `src/sse/hub.ts` — `closeAllSubscribers` on `AUDIT_COMPLETED`; 404-before-headers in `src/routes/audits.ts` — `streamAuditHandler` (D-3)                                                           |
-| Event fixtures (tests)    | `packages/contracts/src/fixtures/events.ts` — happy + failure sequences incl. degradation parity with `apps/api/src/agent/stub-runner.ts`                                                                          |
+| Concern | Location |
+| --- | --- |
+| Hook, ordering, validation and reconciliation | `apps/mfe-metrics/src/hooks/useAuditStream.ts` |
+| UI and snapshot/event merge | `apps/mfe-metrics/src/MetricsView.tsx`, `apps/mfe-metrics/src/lib/dashboard.ts` |
+| Server replay, terminal close and watermarks | `apps/api/src/sse/hub.ts`, `apps/api/src/store/audits.ts` |
+| Framing and retry | `apps/api/src/sse/serializer.ts` |
+| Client tests | `apps/mfe-metrics/tests/useAuditStream.test.ts`, `apps/mfe-metrics/tests/MetricsView.test.tsx` |
+| Real browser flow and latency | `tests/e2e/audit-flow.spec.ts`, `pnpm test:e2e:latency` |
 
 ## Consequences
 
-### Pros
-
-- **Resync correctness by protocol:** dedup + `Last-Event-ID` + server replay reuse the exact semantics the backend already guarantees (D-6), so reconnects are gap-free in the common case without custom headers or polling.
-- **Rendering performance:** append-only reducer with stable per-event rows keeps per-event work O(1) and honors NFR-P1; no framework cache invalidation on the hot path.
-- **Testability:** the reducer is a pure function (unit-testable); the hook is integration-tested against MSW SSE streaming with deterministic fixture sequences (ASD §10.3).
-- **Graceful degradation UX:** gap banners, `resyncing`/`error` statuses, and terminal close give the dashboard honest state instead of silent staleness.
-
-### Cons
-
-- **Gap window after buffer eviction:** evicted events cannot be replayed (1000-event cap, ADR-004). The snapshot can recover findings/status/summary but not the missing timeline; the UI must show the gap banner rather than fake continuity.
-- **Dedup requires id discipline:** the strategy assumes the server's monotonic ids (D-6). Any future multi-node backend sharding the sequence would need a redesign (single hub, single process today — ADR-003/004).
-- **No cross-tab sharing:** two tabs on the same audit each hold their own EventSource and reducer; harmless (the hub fans out per connection) but doubles connections — acceptable at PoC scale.
-- **Native `EventSource` cannot send custom headers on the _initial_ request**, so future authentication for a shared/remote deployment may require a `fetch`-based parser or another approved mechanism. Such deployment is outside the current loopback-only policy (ADR-008); an `X-API-Key` placeholder is not authentication.
-
-## Status
-
-**Accepted** (2026-09-29). Implementation tracked by `docs/plans/implementation-plan-mfe.md` US-3 (hook, dedup, resync) and US-4 (reconciliation view).
+Replay and native reconnection avoid a custom protocol; local state avoids a global store, but every tab maintains its own connection. Gaps after eviction cannot be reconstructed from snapshots. Native EventSource cannot attach arbitrary headers on its initial request; future authenticated remote deployment would require a separately approved design. Ordering and validation depend on server protocol discipline and tests, not on compile-time types alone.

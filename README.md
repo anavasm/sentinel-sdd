@@ -40,6 +40,7 @@ flowchart LR
 4. The SSE hub validates and sequences events, buffers them for reconnect/replay, and updates the in-memory audit snapshot.
 
 The hub assigns monotonically increasing per-audit event IDs. Streams for unknown audit IDs return a Problem Details 404 before SSE headers are sent. LLM/provider failures are represented as stream events, not HTTP errors.
+`AGENT_THOUGHT` is a compatibility name for progress/status updates, not internal model reasoning. Findings are suggestions for manual application outside Sentinel; the PoC does not modify files, generate patches, or create PRs or commits.
 
 ### Technology
 

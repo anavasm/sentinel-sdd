@@ -24,7 +24,7 @@
 
 | ID     | Requirement     | Target                                                                                                     |
 | ------ | --------------- | ---------------------------------------------------------------------------------------------------------- |
-| NFR-O1 | Reproducibility | One-command bootstrap of the full stack (`pnpm install` + `turbo dev`)                                     |
+| NFR-O1 | Reproducibility | Install with `pnpm install`; start MFEs with `pnpm dev` and API separately with `pnpm --filter @sentinel/api dev` |
 | NFR-O2 | Maintainability | Shared TypeScript types across MFEs and backend; spec-first contracts                                      |
 | NFR-O3 | Quality gates   | Coverage > 80% (Vitest/RTL) enforced locally; 1 Playwright E2E suite as release gate (see `10-testing.md`) |
 

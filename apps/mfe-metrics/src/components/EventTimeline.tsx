@@ -1,7 +1,7 @@
 /**
  * Live agent timeline (US-4 Task 4.1): renders `AGENT_THOUGHT` and
  * `TOOL_EXECUTION` events chronologically with a clear visual distinction —
- * thoughts as plain speech rows, tool runs as bordered cards carrying a
+ * progress as plain speech rows, tool runs as bordered cards carrying a
  * status chip (`started | succeeded | degraded | failed`, US4-AC2/AC3).
  */
 import type { JSX } from 'react';
@@ -39,7 +39,7 @@ export function EventTimeline({ events }: EventTimelineProps): JSX.Element {
             <div className="flex items-baseline gap-2">
               <span className="font-mono text-xs text-slate-500">#{event.id}</span>
               <span className="rounded-full bg-sentinel-accent/15 px-2 py-0.5 text-xs font-medium text-sentinel-accent">
-                Thought
+                Progress
               </span>
               {event.payload.step !== undefined && (
                 <span className="text-xs uppercase tracking-wide text-slate-400">

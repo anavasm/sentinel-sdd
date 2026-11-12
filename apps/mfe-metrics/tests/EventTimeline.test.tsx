@@ -1,6 +1,6 @@
 /**
  * EventTimeline tests (US-4 Task 4.1): chronological rows, visual distinction
- * between thoughts and tool runs, status chips, and degradation visibility
+ * between progress and tool runs, status chips, and degradation visibility
  * (US4-AC2/AC3).
  */
 import { render, screen, within } from '@testing-library/react';
@@ -15,11 +15,11 @@ describe('EventTimeline', () => {
     expect(screen.getByText(/timeline will appear here/i)).toBeInTheDocument();
   });
 
-  it('renders thoughts with their content and phase step', () => {
+  it('renders progress events with their content and phase step', () => {
     render(<EventTimeline events={[thoughtEvent(1, 'Reading auth module', 'analyze')]} />);
 
     const row = screen.getByTestId('timeline-thought');
-    expect(within(row).getByText('Thought')).toBeInTheDocument();
+    expect(within(row).getByText('Progress')).toBeInTheDocument();
     expect(within(row).getByText('analyze')).toBeInTheDocument();
     expect(within(row).getByText('Reading auth module')).toBeInTheDocument();
   });

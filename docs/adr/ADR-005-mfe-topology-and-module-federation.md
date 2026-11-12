@@ -1,67 +1,33 @@
-# ADR-005: MFE Topology — Vite Module Federation across `mfe-shell`, `mfe-config`, `mfe-metrics`
+# ADR-005: MFE Topology — Vite Module Federation
 
-- **Status:** Accepted
+- **Status:** Accepted; implementation reconciled during P2
 - **Date:** 2026-09-29
-- **Decides:** Frontend topology — three separate workspace apps (`apps/mfe-shell` host, `apps/mfe-config` and `apps/mfe-metrics` remotes) wired at runtime via Vite + `@originjs/vite-plugin-federation`, per constraint C-01
-- **Sources:** ASD §4.1 (C-01), `docs/ARCHITECTURE.md` §1–§2, ASD §6.2, `docs/plans/implementation-plan-mfe.md` (D-WEB-1/D-WEB-2)
-- **Supersedes:** The earlier working name `apps/web` (single-SPA idea) — superseded by user decision (2026-09-29) to honor C-01 strictly
-- **Related:** ADR-006 (SSE hook in `mfe-metrics`), ADR-007 (shared contracts in all MFEs)
+- **Decides:** Three workspace apps under `apps/`, composed at runtime using Vite and `@originjs/vite-plugin-federation` (C-01).
+- **Supersedes:** The earlier single-SPA working name `apps/web`.
+- **Related:** ADR-006 (stream state), ADR-007 (contracts), ADR-008 (local security boundaries).
 
-## Context
+## Context and decision
 
-Core Objective 2 of the Project Brief requires the Configuration module and the Metrics/Analytics module to be **independently evolvable** ("distinct frontend teams"). The ASD therefore mandates (C-01) a microfrontend architecture: one host (`mfe-shell`: layout, routing, global concerns) and two remotes (`mfe-config`: audit launch; `mfe-metrics`: live stream, dashboard, findings). `docs/ARCHITECTURE.md` §2 already names the concrete stack: Vite + `@originjs/vite-plugin-federation`, with TanStack Query for cross-MFE server state and React Router owned by the host.
+The configuration and metrics modules must be independently evolvable. A single SPA was rejected because build-time boundaries alone do not provide the selected MFE topology. Webpack federation was rejected in favor of the repository's Vite stack; iframes were rejected because routing and navigation across boundaries would be awkward.
 
-Alternatives considered:
+| Workspace | Responsibility | Federation |
+| --- | --- | --- |
+| `apps/mfe-shell` | Layout, routing and lazy remote loading | Host; `/` mounts config, `/audits/:auditId` mounts metrics |
+| `apps/mfe-config` | Audit configuration and launch | Exposes `./ConfigView` |
+| `apps/mfe-metrics` | Stream, findings, dashboard and client-side Markdown export | Exposes `./MetricsView` |
 
-1. **Single SPA (`apps/web`) with module-folder boundaries** — rejected: satisfies neither C-01 nor Core Objective 2; build-time module boundaries do not give independent deployment/evolution.
-2. **Webpack Module Federation** — rejected: the repo standardizes on Vite; the ASD names the Vite plugin explicitly.
-3. **iframe composition** — rejected: routing/state sharing across the shell boundary (POST → redirect to `/audits/{auditId}`) would be fragile and un-idiomatic.
+The shell owns navigation; remotes do not import one another. Each remote also supports standalone development. The Vite configurations declare React, React DOM and contracts in the federation share scope; the plugin does not offer a Webpack-style singleton flag, so runtime sharing requires care. The metrics build additionally routes the React import in `use-sync-external-store` through the federation share scope to avoid a second React instance in the Recharts dependency chain. Both federated and standalone metrics rendering are exercised by Playwright.
 
-## Decision
+Tailwind configuration and CSS entries are owned per workspace. The API client is provided by `packages/contracts`, not by a shell federation module; REST and stream state are local to the consuming view (ADR-006). Recharts is used by metrics; neither TanStack Query nor React Hook Form is installed.
 
-**Build the frontend as three pnpm/Turborepo workspaces under `apps/`, federated at runtime:**
+## Implementation references
 
-| Workspace | Role | Federated surface |
-|---|---|---|
-| `apps/mfe-shell` | Host: app shell, global layout, React Router (`/` → config, `/audits/:auditId` → metrics), shared API client + Problem rendering | exposes `./Layout`; consumes both remotes |
-| `apps/mfe-config` | Remote 1: audit launch form, client-side fail-fast validation, POST + redirect | exposes `./ConfigView` |
-| `apps/mfe-metrics` | Remote 2: `useAgentStream` SSE hook, live dashboard, findings viewer, terminal report | exposes `./MetricsView` |
-
-Rules established with the topology:
-
-1. **Routing belongs to the shell only.** Remotes render views; cross-MFE navigation happens exclusively through the host's router (mirrors the ASD §6.1 sequence diagram: config POST → shell redirect → metrics view).
-2. **Shared singletons:** `react`, `react-dom`, and `@sentinel/contracts` are declared shared-singleton in all three Vite configs — duplicate React copies break hooks, duplicate contract modules break identity checks.
-3. **Fixed dev ports (D-WEB-2):** shell 5173, config 5174, metrics 5175 — required for stable remote URLs and the future Playwright suite (ASD §10.4).
-4. **Dual-mode remotes:** every remote must also run standalone (`vite dev` on its own port) so teams develop without booting the host; federation is added at the edges, not baked into component code.
-5. **No remote-to-remote imports.** Shared UI/API helpers live in the shell (or a future `packages/` module) — never in a sibling remote.
-6. **Styling standardizes on Tailwind CSS (v3/v4) across all three workspaces** (`mfe-shell`, `mfe-config`, `mfe-metrics`). Tailwind (plus PostCSS) and the base `@tailwind` directives are initialized **per workspace** — each remote owns its own `tailwind.config.ts`, `postcss.config.js`, and CSS entry with its own `@tailwind base/components/utilities` directives. Rationale: under runtime Module Federation each remote is built independently, so per-workspace scoping guarantees design consistency (identical utility vocabulary, shared design tokens via each config's `theme` extension) while avoiding duplicate/generated class collisions when remote bundles are injected into the host at runtime. No CSS-in-JS, no second styling framework, and no shared global stylesheet imported across the federation boundary (only Tailwind tokens/theme values are kept in sync manually, or via a future shared `packages/` preset if drift becomes a problem).
-
-### Code references (planned placement — no code written yet)
-
-| Concern | Location |
-|---|---|
-| Host routing + lazy remote loading | `apps/mfe-shell/src/` — React Router (`/`, `/audits/:auditId`), lazy `ConfigView`/`MetricsView` |
-| Federation host config | `apps/mfe-shell/vite.config.ts` (`remotes: { config, metrics }`) |
-| Federation remote exposures | `apps/mfe-config/vite.config.ts` (`exposes: ['./ConfigView']`), `apps/mfe-metrics/vite.config.ts` (`exposes: ['./MetricsView']`) |
-| Cross-MFE server state | TanStack Query in each remote (per `docs/ARCHITECTURE.md` §2), invalidation kept remote-local |
-| Backend integration surface | `specs/openapi.yaml` endpoints implemented by `@sentinel/api` (`src/routes/audits.ts`, per ADR-001..004) |
+- Host routing and fallback: `apps/mfe-shell/src/App.tsx`; host federation: `apps/mfe-shell/vite.config.ts`.
+- Remote exposures and shared modules: `apps/mfe-config/vite.config.ts`, `apps/mfe-metrics/vite.config.ts`.
+- API routing: `apps/api/src/routes/api-v1.ts` and `apps/api/src/routes/audits.ts`.
+- `pnpm dev` runs `scripts/dev-federation.mjs`, building and serving config on 5174 and metrics on 5175 and starting the shell on 5173. Start the API separately with `pnpm --filter @sentinel/api dev` (port 3000). API CORS permits the configured local origins; the API still binds only to loopback.
+- Browser coverage: `pnpm test:e2e:flow`; the separate `pnpm test:e2e:latency` covers P1 latency.
 
 ## Consequences
 
-### Pros
-
-- **Independent evolution:** config and metrics teams can ship, test, and demo their remote standalone without coordinating releases (C-01's stated rationale).
-- **Right-sized bundles:** the metrics MFE pulls Recharts and the SSE machinery only where the metrics view is loaded; the config form stays light.
-- **E2E-ready:** fixed ports + a single Playwright flow (`mfe-config` → shell → `mfe-metrics`, ASD §10.4) map 1:1 onto the topology.
-- **Seam for growth:** a future third remote (e.g., reports) slots in without touching existing remotes.
-
-### Cons
-
-- **Runtime dependency risk:** remote load failure renders a broken shell unless handled — mitigated by US1 fallback UI (friendly error, retry) and the standalone mode for debugging.
-- **Shared-singleton discipline is manual:** Vite federation does not enforce React/contracts singletons; a misconfigured remote compiles but crashes at runtime. Protected by the US-1 smoke test.
-- **CORS overhead in dev:** remotes fetch the API and the shell fetches remotes cross-port; the API needs a dev CORS allowlist (5173–5175) — tracked as an `apps/api` follow-up (plan Q-2), not a client workaround.
-- **Two build modes to maintain** per remote (standalone + federated) — accepted for the PoC; documented in each README.
-
-## Status
-
-**Accepted** (2026-09-29). Implementation tracked by `docs/plans/implementation-plan-mfe.md` US-1.
+Independent remotes permit local standalone development and isolate the chart dependency to metrics, at the cost of runtime loading failures and shared-dependency complexity. The shell provides error handling for remote failures. A successful build alone does not guarantee a single compatible React instance, so browser tests remain important. Fixed local ports simplify federation and tests but require coordination when already in use.

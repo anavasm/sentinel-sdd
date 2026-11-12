@@ -127,6 +127,8 @@ Phases 1 and 2 may proceed in parallel. P2 is not complete until the full-flow t
 - The MFE plan distinguishes implemented work from work still open at the end of P2.
 - Development instructions unambiguously state how to start the API and frontends, including that `pnpm dev` does not start the API.
 
+**Phase 4 evidence:** Architecture and ASD sections, ADR-005–007, and the MFE plan have been reconciled with the implemented topology, state and validation boundaries. The MFE plan records deviations and remaining unverified historical criteria. The timeline now labels `AGENT_THOUGHT` as progress; its wire type and payload are unchanged, and the schema descriptions and generated types were updated. The root contract gate, 20 contracts tests, 130 API tests, 57 metrics tests, metrics lint/typecheck and both deterministic flow browser tests passed. The final cross-workspace quality gates in phase 5 remain open.
+
 ## 5. Definition of Done
 
 - Markdown export and the severity chart work for completed audits and have focused tests.

@@ -6,7 +6,7 @@
 
 | Environment             | Type     | Managed by     | Purpose                            |
 | ----------------------- | -------- | -------------- | ---------------------------------- |
-| Local developer machine | Dev only | Each developer | Full stack execution (`turbo dev`) |
+| Local developer machine | Dev only | Each developer | Frontends via `pnpm dev`; API separately via `pnpm --filter @sentinel/api dev` |
 
 Single environment. No UAT/Staging/Prod environments for the MVP — the deliverable is a locally-run PoC (constraint C-06/C-07; confirmed by user decision "in-memory MVP, no external DB").
 
@@ -15,7 +15,7 @@ Single environment. No UAT/Staging/Prod environments for the MVP — the deliver
 ```mermaid
 graph LR
     subgraph DevMachine ["Developer Machine"]
-        Turbo["Turborepo Orchestrator"]
+        FrontendDev["Frontend dev orchestration"]
         subgraph Vite ["Vite Dev Servers"]
             ShellDev["mfe-shell :PORT_SHELL"]
             ConfigDev["mfe-config :PORT_CONFIG"]
