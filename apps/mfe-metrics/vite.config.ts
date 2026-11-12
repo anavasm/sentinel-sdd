@@ -1,6 +1,37 @@
 import react from '@vitejs/plugin-react';
-import { defineConfig } from 'vite';
+import { defineConfig, type Plugin } from 'vite';
 import federation from '@originjs/vite-plugin-federation';
+
+function shareReactWithExternalStore(): Plugin {
+  const virtualModuleId = '\0sentinel:external-store-react';
+  return {
+    name: 'share-react-with-external-store',
+    apply: 'build',
+    enforce: 'pre',
+    resolveId(source, importer) {
+      if (source === 'react' && importer?.replaceAll('\\', '/').includes('/use-sync-external-store/')) {
+        return virtualModuleId;
+      }
+      return undefined;
+    },
+    load(id) {
+      if (id === virtualModuleId) {
+        // The CommonJS store shim must use the same federated React as the chart.
+        return `
+          import {
+            useState, useRef, useEffect, useMemo, useLayoutEffect,
+            useDebugValue, useSyncExternalStore
+          } from 'react';
+          export {
+            useState, useRef, useEffect, useMemo, useLayoutEffect,
+            useDebugValue, useSyncExternalStore
+          };
+        `;
+      }
+      return undefined;
+    },
+  };
+}
 
 // Remote 2 per ADR-005: exposes ./MetricsView, runs standalone on port 5175 (D-WEB-2).
 // react/react-dom/@sentinel/contracts are declared in the federation share
@@ -10,6 +41,7 @@ import federation from '@originjs/vite-plugin-federation';
 export default defineConfig({
   plugins: [
     react(),
+    shareReactWithExternalStore(),
     federation({
       name: 'mfe-metrics',
       filename: 'remoteEntry.js',

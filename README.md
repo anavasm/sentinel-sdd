@@ -8,7 +8,7 @@ This repository demonstrates a TypeScript monorepo, runtime microfrontend compos
 
 - `mfe-shell` hosts the UI and owns routes: `/` for configuration and `/audits/:auditId` for metrics.
 - `mfe-config` validates and submits Git URL or local path, enabled rule sets, and a severity threshold.
-- `mfe-metrics` consumes the named SSE events and displays the event timeline, findings, severity counts, and terminal health score.
+- `mfe-metrics` consumes the named SSE events and displays the event timeline, findings, severity counts and chart, and terminal health score. Terminal audit snapshots can be downloaded as Markdown reports.
 - `apps/api` implements audit creation, session-scoped audit retrieval, and the per-audit SSE stream. The runner reads a local directory or shallow-clones a Git repository, then calls the configured LLM adapter with Ollama fallback.
 - `packages/contracts` contains generated TypeScript API/event types, API client helpers, fixtures, and contract validation derived from `/specs`.
 
@@ -145,6 +145,21 @@ pnpm --filter @sentinel/api test
 pnpm --filter @sentinel/mfe-metrics test
 pnpm --filter @sentinel/contracts validate
 ```
+
+The deterministic full browser flow starts and stops its own local API and
+federated frontend (ports 3000, 4312, and 5173–5175 must be free). Install the
+Playwright Chromium browser once with `pnpm exec playwright install chromium`,
+then run:
+
+```sh
+pnpm test:e2e:flow
+```
+
+The test uses the real API and SSE hub with a test-only fixture runner. It
+does not clone a repository or contact an LLM. The separate P1 latency test
+remains available as `pnpm test:e2e:latency`; the two suites use the same
+frontend and API ports and must not run concurrently.
+The root `pnpm typecheck` also checks the Playwright configuration and tests.
 
 ## Contracts and Documentation
 

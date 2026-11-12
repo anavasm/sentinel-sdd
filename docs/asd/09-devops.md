@@ -19,7 +19,7 @@ pnpm validate         # required contracts gate, through Turborepo
 turbo run lint        # eslint across all packages
 turbo run typecheck   # tsc --noEmit across apps/packages
 turbo run test        # vitest, coverage > 80% gate (see 10-testing.md)
-turbo run e2e         # playwright suite (full monorepo environment)
+pnpm test:e2e:flow    # Playwright: config → shell → metrics with test-only runner
 turbo run build       # all apps build cleanly
 ```
 
@@ -30,6 +30,11 @@ turbo run build       # all apps build cleanly
 | Unit/Integration | Vitest + RTL + MSW | Coverage > 80% (constraint §4.2) |
 | E2E | Playwright | 1 suite green (config → shell → metrics flow) |
 | Contracts | `pnpm validate` | Spec syntax, SSE fixtures and negative samples, and current generated OpenAPI types |
+
+The browser suite starts and stops its own local API, shell, and remotes. It
+uses synthetic events from a test-only runner rather than an external LLM or
+Git repository. See the README for browser installation, required ports, and
+the separate P1 latency test.
 
 ## 9.3 Contract Validation Step
 

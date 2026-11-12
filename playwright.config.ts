@@ -2,6 +2,7 @@ import { defineConfig, devices } from '@playwright/test';
 
 export default defineConfig({
   testDir: './tests/e2e',
+  testMatch: 'sse-latency.spec.ts',
   fullyParallel: false,
   timeout: 30_000,
   reporter: 'line',

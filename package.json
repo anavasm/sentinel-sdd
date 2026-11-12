@@ -10,8 +10,9 @@
   "scripts": {
     "validate": "turbo run validate --filter=@sentinel/contracts",
     "lint": "turbo run lint",
-    "typecheck": "turbo run typecheck",
+    "typecheck": "tsc -p tsconfig.json && turbo run typecheck",
     "test": "turbo run test",
+    "test:e2e:flow": "playwright test --config playwright.flow.config.ts",
     "test:e2e:latency": "playwright test tests/e2e/sse-latency.spec.ts",
     "build": "turbo run build",
     "dev": "node scripts/dev-federation.mjs",
@@ -19,7 +20,9 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.49.1",
+    "@types/node": "^20.16.0",
     "prettier": "3.9.9",
-    "turbo": "^2"
+    "turbo": "^2",
+    "typescript": "^5.6.0"
   }
 }
