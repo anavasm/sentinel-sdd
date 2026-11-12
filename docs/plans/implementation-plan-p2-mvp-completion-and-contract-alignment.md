@@ -3,6 +3,7 @@
 > Work item: Complete the remaining MVP deliverables and reconcile implementation, API contracts, architecture documentation, and ADRs with the shipped code.
 > Prepared: 2026-11-12 · Baseline: P0 security boundaries and P1 main-flow reliability are complete.
 > Scope: P2 implementation and documentation alignment. This plan does not change the P0 security boundaries, add persistence, or expand the product beyond the local PoC.
+> Status: **Complete** — phase 5 quality gates passed on 2026-11-12; evidence is recorded in section 5.
 
 ## 1. Goal and Decisions
 
@@ -19,6 +20,8 @@ Complete the user-visible MVP gaps and make the root quality gates and technical
 9. **Update ADRs and plans to describe the implementation.** Keep runtime validators where they currently live unless a separate implementation requirement warrants a shared-validator refactor; ADR-007 must not claim that MFEs consume a shared Ajv export that does not exist.
 
 ## 2. Baseline and Risks
+
+The following table describes the pre-P2 baseline, not the current implementation.
 
 | Area | Observed state |
 | --- | --- |
@@ -127,7 +130,7 @@ Phases 1 and 2 may proceed in parallel. P2 is not complete until the full-flow t
 - The MFE plan distinguishes implemented work from work still open at the end of P2.
 - Development instructions unambiguously state how to start the API and frontends, including that `pnpm dev` does not start the API.
 
-**Phase 4 evidence:** Architecture and ASD sections, ADR-005–007, and the MFE plan have been reconciled with the implemented topology, state and validation boundaries. The MFE plan records deviations and remaining unverified historical criteria. The timeline now labels `AGENT_THOUGHT` as progress; its wire type and payload are unchanged, and the schema descriptions and generated types were updated. The root contract gate, 20 contracts tests, 130 API tests, 57 metrics tests, metrics lint/typecheck and both deterministic flow browser tests passed. The final cross-workspace quality gates in phase 5 remain open.
+**Phase 4 evidence:** Architecture and ASD sections, ADR-005–007, and the MFE plan have been reconciled with the implemented topology, state and validation boundaries. The MFE plan records deviations and remaining unverified historical criteria. The timeline now labels `AGENT_THOUGHT` as progress; its wire type and payload are unchanged, and the schema descriptions and generated types were updated. The root contract gate, 20 contracts tests, 130 API tests, 57 metrics tests, metrics lint/typecheck and both deterministic flow browser tests passed. The final cross-workspace quality gates are recorded below.
 
 ## 5. Definition of Done
 
@@ -138,6 +141,22 @@ Phases 1 and 2 may proceed in parallel. P2 is not complete until the full-flow t
 - Relevant lint, typecheck, unit/integration tests, build, contract validation, and the existing P1 latency test pass.
 - ADR-005, ADR-006, ADR-007, `implementation-plan-mfe.md`, architecture/ASD docs, and development instructions are reconciled with implementation evidence.
 - P0 security boundaries and P1 flow reliability behavior are preserved; no backend remediation, persistence, authentication, or external LLM behavior is introduced.
+
+### Phase 5 evidence — 2026-11-12
+
+Executed from the repository root at commit `f46e273` on Node.js 24.22.1 and pnpm 9.12.0. Turborepo tasks were forced to run without cached results. The browser suites ran sequentially because they share ports.
+
+| Gate | Result |
+| --- | --- |
+| `pnpm validate` | Passed: spec syntax, 7 valid and 3 invalid SSE samples, and generated OpenAPI type drift check. |
+| `pnpm lint` | Passed for all 5 workspaces. |
+| `pnpm typecheck` | Passed, including root Playwright files and 5 workspace tasks. |
+| `pnpm test` | Passed: 225 tests across API (130), contracts (20), shell (11), config (7), and metrics (57). |
+| `pnpm build` | Passed: all 4 applicable workspace build tasks. |
+| `pnpm test:e2e:flow` | Passed: 2 browser tests covering the federated audit flow and standalone metrics remote. |
+| `pnpm test:e2e:latency` | Passed: 2 browser tests, including the delayed negative control. All 30 sequential events were below 500 ms; observed median 5.56 ms, p95 9.31 ms, maximum 34.37 ms. |
+
+The latency measurement covers the local test control request through visible DOM update; it is not a real-provider inference benchmark. Browser flow tests use deterministic fixtures, not a real Git host or LLM. Historical MFE-plan details that were not implemented remain explicitly identified in that plan; P2 closure does not claim those superseded details were delivered.
 
 ## 6. Risks and Mitigations
 

@@ -15,7 +15,7 @@ The flow runs through the three MFEs and API. P2 added the chart, terminal Markd
 | 1.2 | Adjusted: ports and API CORS exist; `pnpm dev` starts only the MFEs, and `pnpm --filter @sentinel/api dev` starts the API separately. |
 | 1.3 | Implemented: shell routes, lazy remotes and fallback in `apps/mfe-shell/src/App.tsx`. |
 | 1.4 | Adjusted: API fetch and Problem helpers live in `packages/contracts/src/api-client.ts`; the shell seam is not federated to remotes. |
-| 1.5 | Implemented for the current topology: shell/component tests and `tests/e2e/audit-flow.spec.ts` exercise real federation; full quality gates remain P2 closure work. |
+| 1.5 | Implemented for the current topology: shell/component tests and `tests/e2e/audit-flow.spec.ts` exercise real federation; P2 quality gates passed as recorded in the P2 plan. |
 | US-2 / 2.1 | Adjusted: `apps/mfe-config/src/lib/auditForm.ts` implements selected fail-fast checks, not a shared Ajv/React Hook Form resolver; server validation is authoritative. |
 | 2.2 | Implemented: `apps/mfe-config/src/LaunchAuditForm.tsx`; default severity is MEDIUM, not the originally proposed LOW. |
 | 2.3 | Adjusted: local React state and contracts API client replace the planned TanStack mutation; navigation and Problem handling are implemented. |
@@ -37,7 +37,7 @@ The flow runs through the three MFEs and API. P2 added the chart, terminal Markd
 | 5.4 | Implemented failed terminal state in `MetricsView.tsx`; the originally proposed dedicated return link is not claimed. |
 | 5.5 | Implemented focused finding, summary, chart, export and metrics tests; see `apps/mfe-metrics/tests/`. |
 
-**Acceptance status:** US-1 and US-2 core flows, US-3 stream lifecycle, US-4 live presentation and US-5 terminal reporting are implemented with the deviations above. Original criteria requiring full client schema validation (US3-AC5), all originally specified detail controls (task 5.1), bounded retry (task 3.5), or blanket proof of every historical edge case are not marked complete. The P2 final quality-gate run and any unverified coverage targets remain open in [the P2 plan](./implementation-plan-p2-mvp-completion-and-contract-alignment.md). Browser test evidence is deterministic and does not establish real-provider behavior.
+**Acceptance status:** US-1 and US-2 core flows, US-3 stream lifecycle, US-4 live presentation and US-5 terminal reporting are implemented with the deviations above. Original criteria requiring full client schema validation (US3-AC5), all originally specified detail controls (task 5.1), bounded retry (task 3.5), or blanket proof of every historical edge case are not marked complete. The final P2 quality-gate results are recorded in [the P2 plan](./implementation-plan-p2-mvp-completion-and-contract-alignment.md); this does not establish any unverified historical coverage targets. Browser test evidence is deterministic and does not establish real-provider behavior.
 
 **Resolved decisions:** client-side Markdown export; Recharts only in metrics; contract API helpers instead of shell-exported helpers; client structural checks rather than shared Ajv; local state instead of TanStack Query. API CORS for local ports is implemented. Suggested After content is manual-only; no Apply Fix, file mutation, patch download, PR or commit is in scope. `AGENT_THOUGHT` is a progress event, not internal model reasoning.
 
