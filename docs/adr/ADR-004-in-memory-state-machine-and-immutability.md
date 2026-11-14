@@ -18,7 +18,7 @@
 
 ## Decision
 
-**Keep the audit state machine in process memory (`Map<string, Audit>`), with an explicit transition table and throw-on-violation semantics, and cap the SSE replay buffer at 1000 events.**
+**Keep the audit state machine in process memory (`Map<string, Audit>`), with an explicit transition table and throw-on-violation semantics, admit at most one queued or running audit per process, and cap the SSE replay buffer at 1000 events.**
 
 Specifically:
 
@@ -29,13 +29,16 @@ Specifically:
 4. **Event buffer cap of 1000 per audit (D-API-4):** replay must terminate; the oldest events are shifted out FIFO. Replay selects retained events by actual ID greater than the cursor, then closes for terminal audits (replay-then-close, D-API-6). The snapshot carries `lastEventId` and `firstAvailableEventId` so clients can detect an unavailable range.
 5. **Snapshot follows each validated event synchronously:** the hub updates status, finding/event identity, terminal summary, and replay watermarks before fan-out. `GET /audits/{id}` reports the same event watermark as the stream and retains accumulated state independently of the replay buffer.
 6. **Restart loses all session state — accepted and documented** (PoC limitation per ASD §8.1). No write-ahead log, no SQLite, no Redis.
-7. **Test isolation is explicit:** `resetAuditStore()` / `resetSseHub()` exist *because* state is in-memory by design.
+7. **Active audit admission is atomic within the process:** the store checks and inserts synchronously, permitting at most one audit in `queued` or `running`. `completed` and `failed` audits release the slot; concurrent subscribers to the same audit remain supported.
+8. **Audit records have no process-lifetime expiry:** all records, including terminal audits, remain in the Map until process exit. The 1000-event SSE cap bounds replay history only; it does not expire audit records, findings, or summaries.
+9. **Test isolation is explicit:** `resetAuditStore()` / `resetSseHub()` exist *because* state is in-memory by design.
 
 ### Code references (`@sentinel/api`)
 
 | Concern | Location |
 |---|---|
 | In-process store, documented PoC limitation | `src/store/audits.ts` — module header ("No database, no migrations; server restart loses all session state"), `const audits = new Map<string, Audit>()` |
+| Single active audit admission | `src/store/audits.ts` — `createAuditIfNoActive()`; `src/routes/audits.ts` — `createAuditHandler` returns `409` when the slot is occupied |
 | Event sequence and replay-window snapshot metadata | `src/store/audits.ts` — `lastEventId`, `firstAvailableEventId`, `recordAuditEvent()` |
 | Finding identity in snapshot | `src/store/audits.ts` — each finding stores the ID of its `VULNERABILITY_FOUND` event |
 | Explicit lifecycle transition table | `src/store/audits.ts` — `VALID_TRANSITIONS` |
@@ -62,10 +65,11 @@ Specifically:
 ### Cons
 
 - **All session state is lost on restart or crash** — in-flight audits vanish mid-stream; clients get 404s for ids that existed minutes ago. Acceptable only because the PoC has no persistence requirement (ASD §8.1); any productionization must introduce a durable store behind the same store functions.
+- **Completed records accumulate for the process lifetime** even though only one audit may be active at a time. Before a shared or deployed mode is considered, a separate design must select storage and define retention, expiry, and deletion behavior for records and replay history; persistence alone does not satisfy the separate security design required by ADR-008.
 - **Single-process ceiling:** the design assumes one Node process. Horizontal scaling (multiple replicas) would break fan-out, replay, and the shared `Map` — a load-balancer stickiness or pub/sub layer would be required.
-- **Unbounded audit growth in the Map:** audits are never evicted from `audits` (only the event buffer is capped). A long-lived PoC instance accumulates memory; acceptable for demos, noted as a deliberate shortcut.
+- **The event buffer is bounded, but audit records are not:** each audit retains at most 1000 replay events, while the audit, findings, and summary remain in the Map for the process lifetime. A long-lived PoC instance accumulates completed audits; acceptable for the local PoC, noted as a deliberate limitation.
 - **Frozen terminals are one-shot:** there is no "re-run audit" concept — rerunning means a new audit id. If idempotent re-execution is ever needed, the lifecycle graph must grow a new edge.
 
 ## Status
 
-**Accepted** (2026-09-29). Implemented in US-3/US-4; lifecycle, freezing, and buffer-cap behavior covered by `apps/api/tests/audits.test.ts` and `apps/api/tests/sse.test.ts`.
+**Accepted** (2026-09-29). Lifecycle, freezing, and buffer-cap behavior were implemented in US-3/US-4. The single-active-audit admission policy was added in P3. Store/API behavior is covered by `apps/api/tests/audits.test.ts`; replay and eviction behavior is covered by `apps/api/tests/sse.test.ts`.

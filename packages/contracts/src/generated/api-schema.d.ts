@@ -35,7 +35,7 @@ export interface paths {
         put?: never;
         /**
          * Create and launch an audit
-         * @description Validates the audit configuration, persists it in memory for the current session, and spawns the Agent Engine task asynchronously. The response returns the audit identifier used to open the SSE stream.
+         * @description Validates the audit configuration, persists it in memory for the current session, and spawns the Agent Engine task asynchronously. Only one audit may be queued or running at a time; terminal audits do not occupy the active-audit slot. A concurrent create request receives 409 Conflict. The response returns the audit identifier used to open the SSE stream.
          */
         post: operations["createAudit"];
         delete?: never;
@@ -459,6 +459,15 @@ export interface operations {
             };
             /** @description Invalid configuration: malformed body, missing repository source, no enabled rule set, invalid severity threshold, or a local repository path that is inaccessible or outside configured allowed roots (fail fast). */
             400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Another audit is queued or running. */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

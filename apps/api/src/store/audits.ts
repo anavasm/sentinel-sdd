@@ -67,6 +67,22 @@ export function createAudit({ config, generateId = generateAuditId }: CreateAudi
   return audit;
 }
 
+/**
+ * Creates an audit only when no audit is queued or running.
+ *
+ * The active-audit check and insertion are synchronous in this process, so
+ * concurrent request handlers cannot both claim the single-audit slot.
+ */
+export function createAuditIfNoActive(input: CreateAuditInput): Audit | undefined {
+  for (const audit of audits.values()) {
+    if (audit.status === 'queued' || audit.status === 'running') {
+      return undefined;
+    }
+  }
+
+  return createAudit(input);
+}
+
 /** Looks up an audit by id; `undefined` when unknown. */
 export function findAuditById(auditId: string): Audit | undefined {
   return audits.get(auditId);

@@ -18,6 +18,7 @@ const PROBLEM_TYPE_BASE_URI = 'https://sentinel.dev/problems';
 export const ProblemType = {
   VALIDATION_ERROR: 'validation-error',
   PAYLOAD_TOO_LARGE: 'payload-too-large',
+  AUDIT_ALREADY_ACTIVE: 'audit-already-active',
   NOT_FOUND: 'not-found',
   INTERNAL_ERROR: 'internal-error',
 } as const;
@@ -82,6 +83,8 @@ function titleForStatus(status: number, typeName: ProblemTypeName): string {
       return 'Request validation failed';
     case ProblemType.PAYLOAD_TOO_LARGE:
       return 'Request payload too large';
+    case ProblemType.AUDIT_ALREADY_ACTIVE:
+      return 'An audit is already active';
     case ProblemType.NOT_FOUND:
       return 'Resource not found';
     case ProblemType.INTERNAL_ERROR:

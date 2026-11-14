@@ -8,6 +8,8 @@
 
 - Audit definitions, live event buffers, and final audit results are held in Maps inside the Express process.
 - Lifetime: current server session. A server restart loses all audit data.
+- Audit records, including completed audits, remain in the Map for the life of the process. The per-audit SSE buffer is independently bounded to the last 1000 events; buffer eviction does not expire the audit, findings, or summary.
+- The API permits at most one queued or running audit at a time; completed and failed audits release the active-audit slot.
 - No external database, no ORM, no migrations — honoring the $0 budget and 15-day timeframe (constraints C-06, C-07; principle `05-principles.md` §5.3).
 
 ## 8.2 Data Entities
@@ -37,4 +39,4 @@ The SSE event payloads are contractually defined in `specs/events-schema.json` (
 
 ## 8.5 Future Data Architecture (out of MVP scope)
 
-> **[TO BE DEFINED]** — If audit history/persistence becomes required post-PoC: storage choice (SQLite vs. Postgres), retention policy, and whether reports move to server-side storage. Not needed for MVP; the Markdown export keeps the door open without committing schema.
+> **[TO BE DEFINED]** — Before any shared or deployed mode beyond the local PoC, a separate design must select storage and define retention, expiry, and deletion behavior for audits, findings, and event history, including their interaction with snapshot and replay semantics. No database or TTL is selected for the PoC. Server-side report storage is also out of scope; the Markdown export remains user-side.

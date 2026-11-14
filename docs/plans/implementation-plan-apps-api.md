@@ -83,9 +83,9 @@ Every AC maps to a concrete OpenAPI response code and the RFC 9457 `Problem` sch
 - `GET /audits/{id}` after `failed` → `status: failed`, empty findings, `summary` optional.
 - `GET .../stream` on `completed`/`failed` audit → replay buffer, terminal event, close (openapi 200 description).
 - `Last-Event-ID` greater than buffer length or non-numeric → resume from end of buffer (defensive; log warning).
-- Concurrent POSTs → both accepted, independent auditIds (NFR-P2 single-audit PoC does not forbid it).
+- Concurrent POSTs while an audit is queued/running → later requests receive `409` Problem Details without creating an audit or starting the runner (NFR-P2). A completed or failed audit releases the slot; multiple SSE subscribers to an audit remain allowed.
 
-**Concurrency:** per-audit monotonic sequence assigned inside the hub (single-process Node, no locking needed). Multiple SSE connections to one audit share the same buffer; each gets its own cursor.
+**Concurrency:** the API admits at most one queued or running audit per process; the synchronous store admission-and-create operation prevents concurrent POSTs from claiming the slot. A terminal audit releases the slot. Per-audit monotonic sequence IDs are assigned inside the hub. Multiple SSE connections to the active audit share its buffer; each gets its own cursor.
 
 **Permissions:** no user authentication is enforced in this PoC, which is restricted to loopback (ADR-008). Local repository access is separately constrained by allowed roots. The stream exposes no cross-audit data (NFR-S3) — auditId in every event envelope must match the path parameter.
 

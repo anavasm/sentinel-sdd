@@ -34,6 +34,7 @@ const AUDIT_ID_PATTERN = /^aud_[0-9a-zA-Z]+$/;
 const PROBLEM_TYPE_URIS = {
   validation: 'https://sentinel.dev/problems/validation-error',
   tooLarge: 'https://sentinel.dev/problems/payload-too-large',
+  auditAlreadyActive: 'https://sentinel.dev/problems/audit-already-active',
   notFound: 'https://sentinel.dev/problems/not-found',
 } as const;
 
@@ -328,6 +329,62 @@ describe('US-2 — POST /api/v1/audits', () => {
           message: 'path is inaccessible or outside configured allowed roots',
         },
       ]);
+    });
+  });
+
+  describe('409 active audit conflict', () => {
+    it('admits only one of two concurrent audit requests and does not create a rejected audit', async () => {
+      const runner = { run: vi.fn() };
+      const app = createApp({ runner });
+      const [first, second] = await Promise.all([
+        request(app).post(`${API_V1}/audits`).send(validLocalPathConfig(localRepoDir)),
+        request(app).post(`${API_V1}/audits`).send(validLocalPathConfig(localRepoDir)),
+      ]);
+
+      const created = [first, second].find((response) => response.status === 201);
+      const rejected = [first, second].find((response) => response.status === 409);
+
+      expect(created).toBeDefined();
+      expect(rejected).toBeDefined();
+      expect(rejected?.headers['content-type']).toContain('application/problem+json');
+      expect(rejected?.body).toMatchObject({
+        type: PROBLEM_TYPE_URIS.auditAlreadyActive,
+        title: 'An audit is already active',
+        status: 409,
+        detail: 'Only one audit may be queued or running at a time.',
+      });
+      expect(runner.run).toHaveBeenCalledTimes(1);
+
+      const activeAuditId = created?.body.auditId as string;
+      expect(findAuditById(activeAuditId)?.status).toBe('queued');
+      transitionAuditStatus(activeAuditId, 'running');
+      transitionAuditStatus(activeAuditId, 'completed');
+
+      const afterCompletion = await request(app)
+        .post(`${API_V1}/audits`)
+        .send(validRepoUrlConfig());
+      expect(afterCompletion.status).toBe(201);
+      expect(afterCompletion.body.auditId).not.toBe(activeAuditId);
+      expect(runner.run).toHaveBeenCalledTimes(2);
+
+      transitionAuditStatus(afterCompletion.body.auditId as string, 'running');
+      transitionAuditStatus(afterCompletion.body.auditId as string, 'failed');
+      const afterFailure = await request(app)
+        .post(`${API_V1}/audits`)
+        .send(validRepoUrlConfig());
+      expect(afterFailure.status).toBe(201);
+      expect(runner.run).toHaveBeenCalledTimes(3);
+    });
+
+    it('validates the request before reporting an active-audit conflict', async () => {
+      const app = createApp({ runner: null });
+      const first = await request(app).post(`${API_V1}/audits`).send(validRepoUrlConfig());
+      expect(first.status).toBe(201);
+
+      const invalid = await request(app).post(`${API_V1}/audits`).send({});
+
+      expect(invalid.status).toBe(400);
+      expect(invalid.body.type).toBe(PROBLEM_TYPE_URIS.validation);
     });
   });
 

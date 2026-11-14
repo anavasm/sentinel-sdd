@@ -3,6 +3,7 @@
 > Work item: Resolve the audit-concurrency mismatch and make the current in-memory and SSE-buffer limits explicit without prematurely expanding the local PoC.
 > Prepared: 2026-11-13 · Baseline: P0 security boundaries, P1 main-flow reliability, and P2 MVP completion are complete.
 > Scope: P3 planning and implementation. This plan does not introduce persistent storage, shared deployment, authentication, or multi-user support.
+> Status: **Implemented** — API, contract, and SSE client checks passed; evidence is recorded in section 8.
 
 ## 1. Goal and Decisions
 
@@ -16,6 +17,8 @@ Keep the current local PoC intentionally small, close the mismatch between its c
 The concurrency decision resolves NFR-P2 in favor of its current “single-user / single-audit” wording, rather than changing the requirement to allow concurrent audits.
 
 ## 2. Baseline and Risks
+
+The following baseline describes the repository before this P3 iteration.
 
 | Area | Observed state |
 | --- | --- |
@@ -110,3 +113,19 @@ The persistence/expiry design is deliberately not an implementation phase. It is
 - Changing the SSE event schema or adding a second gap-detection mechanism.
 - Limiting the number of SSE clients connected to the single active audit.
 - Changing the established P0 repository-path or LLM-egress security policies.
+
+## 8. Implementation Evidence — 2026-11-13
+
+- Added synchronous `createAuditIfNoActive()` store admission and wired `POST /api/v1/audits` to return RFC 9457 `409 Conflict` (`audit-already-active`) when an audit is queued or running. Rejected requests do not create an audit or invoke the runner.
+- Added API integration coverage for two concurrent local-path requests, request-validation precedence, and release of the slot after both completed and failed audits.
+- Updated OpenAPI and generated TypeScript contracts, NFR-P2, ASD data architecture, ADR-004, and the original API implementation plan. The documentation distinguishes process-lifetime audit retention from the independently bounded 1000-event SSE buffer and gates future persistence/expiry design on a shared or deployed mode.
+- Verified the P1 gap signal without duplicating it: API tests cover buffer eviction and snapshot watermarks; the metrics hook test suite covers client reconciliation and gap reporting.
+
+| Check | Result |
+| --- | --- |
+| `pnpm --filter @sentinel/api test` | Passed: 132 tests; 93.16% statements/lines, 87.54% branches, and 99.08% functions |
+| `pnpm --filter @sentinel/mfe-metrics exec vitest run tests/useAuditStream.test.ts` | Passed: 22 tests |
+| `pnpm validate` | Passed: OpenAPI/events syntax, fixtures, and generated-type drift check |
+| `pnpm --filter @sentinel/api lint` | Passed |
+| `pnpm --filter @sentinel/api typecheck` | Passed |
+| `pnpm typecheck` | Passed: root check and all 5 workspaces |

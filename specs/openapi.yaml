@@ -61,8 +61,11 @@ paths:
       summary: Create and launch an audit
       description: >
         Validates the audit configuration, persists it in memory for the
-        current session, and spawns the Agent Engine task asynchronously.
-        The response returns the audit identifier used to open the SSE stream.
+        current session, and spawns the Agent Engine task asynchronously. Only
+        one audit may be queued or running at a time; terminal audits do not
+        occupy the active-audit slot. A concurrent create request receives
+        409 Conflict. The response returns the audit identifier used to open
+        the SSE stream.
       tags:
         - audits
       requestBody:
@@ -97,6 +100,14 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AuditCreated"
+        "409":
+          description: >
+            Another audit is queued or running. The Problem Details type is
+            `https://sentinel.dev/problems/audit-already-active`.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
         "400":
           description: >
             Invalid configuration: malformed body, missing repository source,

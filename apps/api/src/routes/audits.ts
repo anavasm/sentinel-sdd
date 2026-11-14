@@ -6,7 +6,11 @@ import type { AuditRunner } from '../agent/runner.js';
 import { buildProblem, ProblemError, ProblemType } from '../lib/problems.js';
 import { resolveAllowedLocalRepository } from '../lib/repository-paths.js';
 import { validateAuditConfig } from '../lib/validators.js';
-import { AUDIT_ID_PATTERN, createAudit, findAuditById } from '../store/audits.js';
+import {
+  AUDIT_ID_PATTERN,
+  createAuditIfNoActive,
+  findAuditById,
+} from '../store/audits.js';
 import { parseLastEventId, subscribeToAuditStream } from '../sse/hub.js';
 import {
   serializeSseFrame,
@@ -21,8 +25,9 @@ import {
  * Ajv `AuditConfig` validation (400), and canonicalized localPath allowlist
  * validation (400 — never deferred to the agent runtime). Success persists an
  * audit in `queued` state, responds `201 AuditCreated`, and hands the audit id
- * to the configured runner asynchronously. `runner === null` disables
- * execution (tests).
+ * to the configured runner asynchronously. If another audit is queued or
+ * running, it returns `409` without creating an audit. `runner === null`
+ * disables execution (tests).
  */
 
 /** Ajv instancePath → openapi `errors[].field` (root-level errors map to 'body'). */
@@ -76,7 +81,14 @@ export function createAuditHandler(runner: AuditRunner | null): RequestHandler {
         };
       }
 
-      const audit = createAudit({ config: validatedConfig });
+      const audit = createAuditIfNoActive({ config: validatedConfig });
+      if (audit === undefined) {
+        throw new ProblemError(
+          buildProblem(409, ProblemType.AUDIT_ALREADY_ACTIVE, {
+            detail: 'Only one audit may be queued or running at a time.',
+          }),
+        );
+      }
 
       // Async kickoff (US-4): the runner schedules itself via `setImmediate`,
       // so the 201 response is already on the wire before any event is emitted.
